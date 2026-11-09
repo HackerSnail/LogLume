@@ -2677,6 +2677,42 @@ pub fn git_probe(path: String) -> Result<crate::gitinfo::GitInfo, IpcError> {
     Ok(crate::gitinfo::git_probe(dir, p))
 }
 
+/// Whole-repo change list for the inspector panel.
+#[tauri::command]
+pub fn git_status(root: String) -> Result<Vec<crate::gitinfo::GitFileStatus>, IpcError> {
+    crate::gitinfo::git_status(Path::new(&root)).map_err(|e| IpcError::new("git", e))
+}
+
+/// Recent commits (HEAD, time order).
+#[tauri::command]
+pub fn git_log(
+    root: String,
+    limit: Option<usize>,
+) -> Result<Vec<crate::gitinfo::GitCommitInfo>, IpcError> {
+    crate::gitinfo::git_log(Path::new(&root), limit.unwrap_or(30))
+        .map_err(|e| IpcError::new("git", e))
+}
+
+/// Files touched by one commit (vs its first parent).
+#[tauri::command]
+pub fn git_commit_files(
+    root: String,
+    id: String,
+) -> Result<Vec<crate::gitinfo::GitCommitFile>, IpcError> {
+    crate::gitinfo::git_commit_files(Path::new(&root), &id).map_err(|e| IpcError::new("git", e))
+}
+
+/// Unified diff for one repo-relative file; `against` = "HEAD" or a commit id.
+#[tauri::command]
+pub fn git_diff_file(
+    root: String,
+    file: String,
+    against: String,
+) -> Result<String, IpcError> {
+    crate::gitinfo::git_diff_file(Path::new(&root), &file, &against)
+        .map_err(|e| IpcError::new("git", e))
+}
+
 /// `git init` in the directory containing `path` (user-confirmed in the UI).
 #[tauri::command]
 pub fn git_init(path: String) -> Result<String, IpcError> {
@@ -2697,6 +2733,23 @@ pub fn git_commit(
 ) -> Result<String, IpcError> {
     crate::gitinfo::git_stage_and_commit(
         Path::new(&path),
+        &message,
+        name.as_deref(),
+        email.as_deref(),
+    )
+    .map_err(|e| IpcError::new("git", e))
+}
+
+/// Stage every change (`git add -A`) and commit — the panel's commit form.
+#[tauri::command]
+pub fn git_commit_all(
+    root: String,
+    message: String,
+    name: Option<String>,
+    email: Option<String>,
+) -> Result<String, IpcError> {
+    crate::gitinfo::git_stage_all_and_commit(
+        Path::new(&root),
         &message,
         name.as_deref(),
         email.as_deref(),
