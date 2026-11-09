@@ -98,6 +98,12 @@ describe("modeIdForExt", () => {
       ["scss", "scss"],
       ["sass", "sass"],
       ["less", "less"],
+      ["v", "verilog"],
+      ["sv", "verilog"],
+      ["svh", "verilog"],
+      ["vh", "verilog"],
+      ["vhd", "vhdl"],
+      ["vhdl", "vhdl"],
     ];
     for (const [ext, mode] of cases) expect(modeIdForExt(ext), ext).toBe(mode);
   });
@@ -177,6 +183,8 @@ describe("resolveLanguage", () => {
       ["scss", "$c: red;\n.a { color: $c; }"],
       ["sass", ".a\n  color: red"],
       ["less", "@c: red;\n.a { color: @c; }"],
+      ["verilog", "module top(input a, output b);\nassign b = a;\nendmodule"],
+      ["vhdl", "entity top is\nend entity;\narchitecture rtl of top is\nbegin\nend architecture;"],
     ];
     for (const [mode, src] of samples) {
       const lang = await resolveLanguage(mode);

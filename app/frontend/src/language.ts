@@ -136,6 +136,8 @@ export const AVAILABLE_MODES = [
   "clojure",
   "protobuf",
   "cmake",
+  "verilog",
+  "vhdl",
   "yaml",
   "toml",
   "shell",
@@ -188,6 +190,8 @@ export const MODE_LABELS: Record<ModeChoice, string> = {
   clojure: "Clojure",
   protobuf: "Protobuf",
   cmake: "CMake",
+  verilog: "Verilog",
+  vhdl: "VHDL",
   yaml: "YAML",
   toml: "TOML",
   shell: "Shell",
@@ -271,6 +275,12 @@ const EXT_MODES: Record<string, ModeChoice> = {
   edn: "clojure",
   proto: "protobuf",
   cmake: "cmake",
+  v: "verilog",
+  sv: "verilog",
+  svh: "verilog",
+  vh: "verilog",
+  vhd: "vhdl",
+  vhdl: "vhdl",
   jsonc: "json",
   json5: "json",
   yaml: "yaml",
@@ -533,6 +543,10 @@ async function loadLanguage(mode: ModeChoice): Promise<LanguageSupport | null> {
       return streamMode(import("@codemirror/legacy-modes/mode/protobuf"), "protobuf");
     case "cmake":
       return streamMode(import("@codemirror/legacy-modes/mode/cmake"), "cmake");
+    case "verilog":
+      return streamMode(import("@codemirror/legacy-modes/mode/verilog"), "verilog");
+    case "vhdl":
+      return streamMode(import("@codemirror/legacy-modes/mode/vhdl"), "vhdl");
     case "yaml":
       return streamMode(import("@codemirror/legacy-modes/mode/yaml"), "yaml");
     case "toml":

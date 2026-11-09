@@ -2,6 +2,12 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-09 — 补 Verilog / VHDL 高亮
+
+**Files:** Modify `app/frontend/src/language.ts`（新增 `verilog`/`vhdl` 模式；`.v/.sv/.svh/.vh` → Verilog，`.vhd/.vhdl` → VHDL）；Modify `app/frontend/src/language.test.ts`（扩展名映射与解析断言）；Modify `app/frontend/src/docKind.ts`（同步为非日志）。
+**Why:** 用户询问 Verilog/VHDL 是否支持；此前 `.v/.vhd` 会静默回落 PlainText。SystemVerilog 用 Verilog 模式近似。
+**验证:** `npx tsc --noEmit` 通过；全量 `npx vitest run` 37 文件 / 287 tests 全绿。
+
 ## 2026-11-09 — 引入社区语言包：PHP / Vue / Svelte / SCSS / Sass / Less
 
 **Files:** Modify `app/frontend/package.json` + `package-lock.json`（新增 `@codemirror/lang-php@6.0.2`、`@codemirror/lang-vue@0.1.3`、`@replit/codemirror-lang-svelte@6.0.0`、`@codemirror/lang-sass@6.0.2`、`@codemirror/lang-less@6.0.2`）；Modify `app/frontend/src/language.ts`（新增 php/vue/svelte/scss/sass/less 模式；PHP 以 HTML 为 base 语言，Sass 区分缩进语法）；Modify `app/frontend/src/language.test.ts`（扩展名映射 + 六种语言解析断言）；Modify `app/frontend/src/docKind.ts`（vue/svelte 同步为非日志）。
