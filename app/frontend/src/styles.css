@@ -40,8 +40,6 @@
   --highlight-blue: rgba(51, 154, 240, 0.32);
   --highlight-violet: rgba(171, 104, 255, 0.32);
   --highlight-pink: rgba(240, 101, 149, 0.32);
-  --diff-add: #1a7f37;
-  --diff-del: #c0341d;
   color-scheme: light;
 }
 :root[data-theme="dark"] {
@@ -68,8 +66,6 @@
   --highlight-blue: rgba(51, 154, 240, 0.28);
   --highlight-violet: rgba(171, 104, 255, 0.27);
   --highlight-pink: rgba(240, 101, 149, 0.28);
-  --diff-add: #7ee787;
-  --diff-del: #ff7b72;
   color-scheme: dark;
 }
 :root[data-theme="vampire"] {
@@ -96,8 +92,6 @@
   --highlight-blue: rgba(139, 233, 253, 0.28);
   --highlight-violet: rgba(189, 147, 249, 0.3);
   --highlight-pink: rgba(255, 121, 198, 0.28);
-  --diff-add: #50fa7b;
-  --diff-del: #ff5555;
   color-scheme: dark;
 }
 /* Vampire keeps Dracula's own selection colour, as NoteLume does (:104-107). */
@@ -1559,6 +1553,7 @@ html.has-custom-titlebar .win-btns {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   cursor: default;
+  user-select: none;
 }
 .git-fold-bar:hover {
   background: var(--hover);
@@ -1604,11 +1599,14 @@ html.has-custom-titlebar .win-btns {
   padding: 0 6px;
   border: 1px solid transparent;
   border-radius: var(--r-sm);
-  cursor: default;
+  cursor: pointer;
 }
 .git-item:hover {
   border-color: var(--border);
   background: var(--hover);
+}
+.git-graph .git-item {
+  overflow: hidden;
 }
 .git-badge {
   flex: none;
@@ -1787,12 +1785,13 @@ html.has-custom-titlebar .win-btns {
 .git-diff-close {
   flex: none;
   height: auto;
-  padding: 0 2px;
+  padding: 0;
   border: 0;
   background: none;
   color: var(--muted);
   font-size: 12px;
   line-height: 1;
+  cursor: default;
 }
 .git-diff-close:hover {
   background: none;
@@ -1819,10 +1818,10 @@ html.has-custom-titlebar .win-btns {
   color: var(--accent);
 }
 .git-diff-add {
-  background: color-mix(in srgb, var(--diff-add) 16%, transparent);
+  background: rgba(56, 161, 105, 0.16);
 }
 .git-diff-del {
-  background: color-mix(in srgb, var(--diff-del) 16%, transparent);
+  background: rgba(229, 62, 62, 0.16);
 }
 .git-diff-ctx {
   color: var(--fg);
@@ -1843,17 +1842,20 @@ html.has-custom-titlebar .win-btns {
   color: var(--muted);
 }
 .git-detail-v {
+  flex: 1;
+  min-width: 0;
   color: var(--fg);
   word-break: break-all;
 }
 .git-detail-v.mono {
-  color: var(--accent);
   font-family: var(--font-mono);
+  font-size: 11px;
 }
 .git-commit-files {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 .git-commit-file {
   cursor: default;

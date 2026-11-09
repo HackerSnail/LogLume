@@ -132,7 +132,7 @@ describe("Git panel parity", () => {
     // Folding hides the rows and persists like NoteLume's localStorage fold.
     const bar = box.querySelector<HTMLButtonElement>(".git-fold-bar");
     bar?.click();
-    expect(box.querySelectorAll(".git-list")[0].hidden).toBe(true);
+    expect((box.querySelectorAll(".git-list")[0] as HTMLElement).hidden).toBe(true);
     expect(localStorage.getItem("lumelog.git-fold.changes")).toBe("1");
     bar?.click();
 

@@ -569,7 +569,7 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
     const head = el("div", "git-diff-head");
     diffTitle = el("span", "git-diff-title");
     const close = el("button", "git-diff-close");
-    close.append(icon("i-close"));
+    close.textContent = "×";
     close.title = "关闭";
     close.setAttribute("aria-label", "关闭");
     close.addEventListener("click", closeDiff);
