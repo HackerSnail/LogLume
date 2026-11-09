@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { visibleWindow, ROW_HEIGHT, OVERSCAN, sliceLineTextByRanges, isNearBottom } from "./listview";
+import {
+  visibleWindow,
+  ROW_HEIGHT,
+  OVERSCAN,
+  sliceLineTextByRanges,
+  isNearBottom,
+  normalizeSelection,
+} from "./listview";
 import type { Cu16Range } from "./ipc";
 
 const R = (cu16Start: number, cu16Len: number): Cu16Range => ({ cu16Start, cu16Len });
@@ -22,6 +29,14 @@ describe("isNearBottom (tail follow)", () => {
     expect(isNearBottom(0, -10)).toBe(true);
   });
 });
+describe("normalizeSelection (AI explain rows)", () => {
+  it("orders anchor/head and keeps a single row", () => {
+    expect(normalizeSelection(9, 3)).toEqual({ from: 3, to: 9 });
+    expect(normalizeSelection(3, 9)).toEqual({ from: 3, to: 9 });
+    expect(normalizeSelection(5, 5)).toEqual({ from: 5, to: 5 });
+  });
+});
+
 describe("visibleWindow (spec §4.3 read-only list)", () => {
   it("top of file clamps first to 0 and adds the overscan block", () => {
     // 400px viewport = 20 lines visible; ±200 overscan.

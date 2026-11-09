@@ -24,6 +24,8 @@ import {
   filterRun,
   filterCancel,
   docLinesAt,
+  searchRun,
+  searchCancel,
   exportLines,
   exportCancel,
   exportCsv,
@@ -84,6 +86,8 @@ import {
   recentClear,
   viewerPdfBytes,
   launchArgs,
+  aiConfigGet,
+  type AiConfigView,
   fifRun,
   fifCancel,
   csvRun,
@@ -95,6 +99,17 @@ import { pickTimelineInput, type TimelineSelection } from "./query";
 import { Debouncer, formatSavedAt, humanSize } from "./recovery";
 import { eventToAccel, DEFAULT_BINDINGS, mergeBindings, type ActionId } from "./keymap";
 import { openKeymapModal } from "./keymap-ui";
+import { openAiSettingsModal } from "./aisettings";
+import { AiPanel, type AiScenario } from "./aipanel";
+import {
+  buildErrorMessages,
+  buildExplainMessages,
+  buildQueryMessages,
+  ERROR_PATTERN,
+  MAX_LINES,
+  type AiContext,
+  type LogLine,
+} from "./aitasks";
 import { openScriptModal } from "./script-ui";
 import { Mf4View, type Mf4Query } from "./mf4-ui";
 import { openEditable, type EditorHandle } from "./editor";
@@ -194,6 +209,11 @@ let keymapOverrides: Record<string, string> = {};
 let keymapState = mergeBindings({});
 let keymapModalOpen = false;
 let scriptModalOpen = false;
+/** AI is opt-in: `null` until the first config read, `enabled=false` by default. */
+let aiConfig: AiConfigView | null = null;
+let aiModalOpen = false;
+let aiBtn: HTMLButtonElement | null = null;
+let aiPanel: AiPanel | null = null;
 
 // ---- CanPanel / CAN decode state (spec §7.4) --------------------------------
 // One panel instance is re-attached to whichever document is active; each
@@ -309,6 +329,7 @@ function layout(): void {
       if (!menuEl) toggleAppMenu(menuBtn, industrialRows());
     }
   });
+  aiBtn = mkBtn("", "AI 助手（默认关闭）", () => toggleAiPanel(), "i-spark");
   primary.append(
     mkBtn("", "打开文件（Ctrl+O）", () => void openFile(), "i-open"),
     mkBtn("", "行过滤 / 高亮命中", () => openQueryPanel(), "i-search"),
@@ -316,6 +337,7 @@ function layout(): void {
     // Scripts are a general per-line transform, not an industrial tool, so they
     // keep a direct button instead of a submenu (one extra hop for a daily use).
     mkBtn("", "打开脚本管理器（QuickJS 逐行变换）", () => openScriptManager(), "i-script"),
+    aiBtn,
     menuBtn,
   );
   const toggles = document.createElement("div");
@@ -408,6 +430,14 @@ function layout(): void {
 
   const workspace = document.createElement("div");
   workspace.className = "workspace";
+  aiPanel = new AiPanel({
+    getConfig: () => aiConfig,
+    openSettings: () => openAiSettings(),
+    runScenario: (kind, note) => void runAiScenario(kind, note),
+  });
+  // AI is a section of the existing inspector (NoteLume parity): same column,
+  // same width/resizer, below the document metadata.
+  insp.append(aiPanel.root);
   workspace.append(aside, sidebarHandleEl, center, inspectorHandleEl, insp);
 
   const toast = document.createElement("div");
@@ -3149,6 +3179,7 @@ async function reloadDocFromDisk(docId: number, path: string): Promise<void> {
       listNow.setView(null, false, false);
       queryHits.delete(docId);
       queryCursor.delete(docId);
+      lastQuery.delete(docId);
       listNow.refresh();
       const st = followStates.get(docId);
       if (st?.on) listNow.scrollToBottom();
@@ -3431,6 +3462,7 @@ async function changeEncoding(label: string): Promise<void> {
       list.setView(null, false, false);
       queryHits.delete(docId);
       queryCursor.delete(docId);
+      lastQuery.delete(docId);
       toastMsg("编码已变更，请重新应用查询");
     }
     ds.encoding = updated.encoding;
@@ -3489,6 +3521,7 @@ async function handleClose(docId: number): Promise<boolean> {
   canFilters.delete(docId); // a closed doc drops its table; the panel is rebuilt on demand
   queryHits.delete(docId); // drop the doc's filter hits/cursor (spec §4.1) — else a
   queryCursor.delete(docId); // late `filter_run` onDone repopulates a closed, never-reused id
+  lastQuery.delete(docId);
   refreshPanels(); // after the maps drop, so a closed doc leaves the sidebar
   void docClose(docId).catch(() => {}); // release the shell-side doc (I5)
   saveSession();
@@ -3641,6 +3674,14 @@ async function handleReadonlyAppend(docId: number, path: string): Promise<void> 
 
 const queryHits = new Map<number, LineHit[]>();
 const queryCursor = new Map<number, number>();
+/** Conditions behind the last applied query per doc — the AI "summarize query"
+ *  scenario must describe what was actually run, not what the panel shows now. */
+interface LastQuery {
+  conditions: FilterCondition[];
+  caseSensitive: boolean;
+  sel: TimelineSelection;
+}
+const lastQuery = new Map<number, LastQuery>();
 // One scan at a time across all docs — an intentional v1 global mutex (a second
 // concurrent scan would fight over the single Stop/`queryReqId` affordance).
 let queryBusy = false;
@@ -3772,6 +3813,7 @@ async function applyQuery(
         }
         queryHits.set(docId, hits);
         queryCursor.set(docId, hits.length ? 0 : -1);
+        lastQuery.set(docId, { conditions, caseSensitive, sel });
         list.setView(hits, hideNon, highlight);
         finish(`命中 ${s.kept}/${s.scanned} 行` + (s.truncated ? "（高亮已截断）" : ""));
       },
@@ -3780,6 +3822,227 @@ async function applyQuery(
   } catch (err) {
     reportError(err);
     finish("查询失败");
+  }
+}
+
+// ---- AI log scenarios (opt-in egress; AI is off by default) -----------------
+// The panel only renders; the context is sliced here from the CURRENT view so
+// the pre-send notice states exactly how many lines leave the machine. Nothing
+// is read from disk beyond the visible/selected excerpt.
+
+/** Lines of surrounding context sent with "explain selected lines". */
+const AI_CONTEXT_PAD = 3;
+
+/** A locally detectable reason the AI turn cannot run (no selection, no query,
+ *  view not ready). Shown in the panel transcript, never sent anywhere. */
+class BlockedReason extends Error {}
+
+/** Fetch these 0-based indices as 1-based `LogLine`s (skips unreadable ones). */
+async function loadLogLines(docId: number, indices: number[]): Promise<LogLine[]> {
+  const res = await fetchLines(docId, indices);
+  const byIndex = new Map(res.lines.map((l) => [l.index, l.text]));
+  const out: LogLine[] = [];
+  for (const i of indices) {
+    const text = byIndex.get(i);
+    if (text !== undefined) out.push({ line: i + 1, text });
+  }
+  return out;
+}
+
+/** Selection + context from the editor, or the list's click selection. */
+async function buildExplainContext(docId: number, st: DocState): Promise<AiContext> {
+  const editor = editors.get(docId);
+  if (editor) {
+    const view = editor.view;
+    const sel = view.state.selection.main;
+    if (sel.empty) {
+      throw new BlockedReason("请先在编辑器中选中要解释的日志行");
+    }
+    const from = view.state.doc.lineAt(sel.from).number;
+    const to = view.state.doc.lineAt(sel.to).number;
+    const first = Math.max(1, from - AI_CONTEXT_PAD);
+    const last = Math.min(view.state.doc.lines, to + AI_CONTEXT_PAD);
+    const lines: LogLine[] = [];
+    for (let n = first; n <= last; n++) lines.push({ line: n, text: view.state.doc.line(n).text });
+    return buildExplainMessages({
+      path: st.path,
+      from,
+      to,
+      totalLines: view.state.doc.lines,
+      lines,
+    });
+  }
+
+  const list = lists.get(docId);
+  if (!list) {
+    throw new BlockedReason("当前视图不支持该操作");
+  }
+  const sel = list.selectedLines();
+  if (!sel) {
+    throw new BlockedReason("请先点击列表中的日志行（Shift+点击可扩选）");
+  }
+  const first = Math.max(0, sel.from - AI_CONTEXT_PAD);
+  const last = Math.min(st.totalLines - 1, sel.to + AI_CONTEXT_PAD);
+  const indices: number[] = [];
+  for (let i = first; i <= last; i++) indices.push(i);
+  const lines = await loadLogLines(docId, indices);
+  if (lines.length === 0) {
+    throw new BlockedReason("选中行尚未索引完成，请稍后再试");
+  }
+  return buildExplainMessages({
+    path: st.path,
+    from: sel.from + 1,
+    to: sel.to + 1,
+    totalLines: st.totalLines,
+    lines,
+  });
+}
+
+/**
+ * Run the broad error matcher through `search_run` and keep the first
+ * `MAX_LINES` unique lines. The scan is cancelled once the sample is full, so
+ * the prompt must disclose that the hit count is a floor (`truncated`).
+ */
+function scanErrorLines(
+  docId: number,
+): Promise<{ lines: number[]; unique: number; truncated: boolean }> {
+  return new Promise((resolve, reject) => {
+    const seen = new Set<number>();
+    const ordered: number[] = [];
+    let reqId: number | null = null;
+    let settled = false;
+    const settle = (truncated: boolean): void => {
+      if (settled) return;
+      settled = true;
+      resolve({ lines: ordered.slice().sort((x, y) => x - y), unique: seen.size, truncated });
+    };
+    void searchRun({
+      docId,
+      pattern: ERROR_PATTERN,
+      mode: "regex",
+      caseSensitive: false,
+      onBatch: (batch) => {
+        for (const m of batch) {
+          if (seen.has(m.line)) continue;
+          seen.add(m.line);
+          ordered.push(m.line);
+          if (ordered.length >= MAX_LINES) break;
+        }
+        if (ordered.length >= MAX_LINES) {
+          if (reqId !== null) void searchCancel(reqId).catch(() => {});
+          settle(true);
+        }
+      },
+      onDone: () => settle(false),
+    })
+      .then((id) => {
+        reqId = id;
+        if (settled) void searchCancel(id).catch(() => {}); // cap hit before the id arrived
+      })
+      .catch((err) => {
+        if (settled) return;
+        settled = true;
+        reject(err);
+      });
+  });
+}
+
+/** "归纳错误模式" — error-like lines only, capped and disclosed. */
+async function buildErrorContext(docId: number, st: DocState): Promise<AiContext> {
+  aiPanel?.setStatus("正在扫描错误/警告行…");
+  const scan = await scanErrorLines(docId);
+  if (scan.lines.length === 0) {
+    throw new BlockedReason("未扫描到错误/警告行");
+  }
+  const lines = await loadLogLines(docId, scan.lines);
+  return buildErrorMessages({
+    path: st.path,
+    pattern: ERROR_PATTERN,
+    lines,
+    hitCount: scan.unique,
+    totalLines: st.totalLines,
+    truncated: scan.truncated,
+  });
+}
+
+/** Human-readable description of the applied query's conditions. */
+function describeQuery(q: LastQuery): string[] {
+  const out = q.conditions.map((c) => {
+    const mode = c.mode === "exclude" ? "排除" : "包含";
+    const kind = c.kind === "regex" ? "（正则）" : "";
+    return `${mode}${kind}「${c.text}」`;
+  });
+  const t = q.sel.time;
+  if (t) {
+    const bounds = [t.from ? `从 ${t.from}` : "", t.to ? `到 ${t.to}` : ""].filter(Boolean).join("，");
+    out.push(
+      `时间轴：提取「${t.extractPattern}」（${t.format}）${bounds ? "，" + bounds : ""}${
+        t.keepWhenNoTs ? "，无时间戳行保留" : ""
+      }`,
+    );
+  }
+  if (q.sel.lineFrom !== undefined && q.sel.lineTo !== undefined) {
+    out.push(`行号范围：${q.sel.lineFrom}–${q.sel.lineTo}`);
+  }
+  return out;
+}
+
+/** "按查询条件总结" — the applied query plus a bounded sample of its hits. */
+async function buildQueryContext(docId: number, st: DocState): Promise<AiContext> {
+  const hits = queryHits.get(docId);
+  const q = lastQuery.get(docId);
+  if (!hits || hits.length === 0 || !q) {
+    throw new BlockedReason("尚无查询命中：请先在查询面板应用条件");
+  }
+  const indices = hits.slice(0, MAX_LINES).map((h) => h.line);
+  const lines = await loadLogLines(docId, indices);
+  return buildQueryMessages({
+    path: st.path,
+    conditions: describeQuery(q),
+    caseSensitive: q.caseSensitive,
+    hitCount: hits.length,
+    totalLines: st.totalLines,
+    lines,
+  });
+}
+
+/** Entry point behind the composer's mode selector and the palette commands.
+ *  `note` is optional free text typed alongside a scenario mode. */
+async function runAiScenario(kind: AiScenario, note?: string): Promise<void> {
+  showAiPanel();
+  const a = tabs.active();
+  if (!a) {
+    aiPanel?.reportBlocked("请先打开一个文档");
+    return;
+  }
+  const docId = a.info.docId;
+  const st = docStates.get(docId);
+  if (!st) {
+    aiPanel?.reportBlocked("文档未就绪");
+    return;
+  }
+  if (!aiConfig?.enabled) {
+    // Explicit unavailable state: guidance card + inline reason, never silent.
+    aiPanel?.reportBlocked("AI 未启用：请先在 AI 设置中开启并填写接口");
+    return;
+  }
+  if (aiPanel?.isBusy === true) {
+    aiPanel?.reportBlocked("AI 正在回复中，请稍候…");
+    return;
+  }
+  try {
+    let ctx: AiContext;
+    if (kind === "explain") ctx = await buildExplainContext(docId, st);
+    else if (kind === "errors") ctx = await buildErrorContext(docId, st);
+    else ctx = await buildQueryContext(docId, st);
+    if (note) {
+      const last = ctx.messages[ctx.messages.length - 1];
+      if (last?.role === "user") last.content += `\n\n补充要求：${note}`;
+    }
+    aiPanel?.runScenario(ctx);
+  } catch (err) {
+    if (err instanceof BlockedReason) aiPanel?.reportBlocked(err.message);
+    else reportError(err);
   }
 }
 
@@ -4180,6 +4443,67 @@ function openKeymapSettings(): void {
   });
 }
 
+/** Open the inspector and expand its AI section (shared by button/palette/scenes). */
+function showAiPanel(): void {
+  if (!aiPanel) return;
+  if (inspectorCollapsed) {
+    inspectorCollapsed = false;
+    inspectorEl?.classList.remove("collapsed");
+    if (inspectorHandleEl) inspectorHandleEl.style.display = "";
+    storeFlag("lumelog.ui.inspector", false);
+  }
+  if (!aiPanel.isExpanded) aiPanel.setExpanded(true);
+  aiBtn?.classList.add("active");
+  aiBtn?.setAttribute("aria-expanded", "true");
+}
+
+/** Appbar toggle: collapsed → open + focus; open → collapse the AI section. */
+function toggleAiPanel(): void {
+  if (!aiPanel) return;
+  if (inspectorCollapsed || !aiPanel.isExpanded) {
+    showAiPanel();
+    aiPanel.focusInput();
+    return;
+  }
+  aiPanel.setExpanded(false);
+  aiBtn?.classList.remove("active");
+  aiBtn?.setAttribute("aria-expanded", "false");
+}
+
+/** Read the opt-in AI config once; failures keep AI off and surface a toast. */
+async function initAiConfig(): Promise<void> {
+  try {
+    aiConfig = await aiConfigGet();
+  } catch (err) {
+    aiConfig = null;
+    toastMsg(`AI 设置读取失败：${err instanceof IpcError ? err.zh : String(err)}`);
+  }
+  if (aiBtn) {
+    aiBtn.title = aiConfig?.enabled
+      ? `AI 助手：${aiConfig.model}`
+      : "AI 助手（默认关闭）";
+  }
+  aiPanel?.refresh();
+}
+
+/** Open the AI settings modal (the only place AI can be enabled). */
+function openAiSettings(): void {
+  if (document.querySelector(".keymap-modal") || document.querySelector(".script-modal")) return;
+  aiModalOpen = true;
+  openAiSettingsModal({
+    onSaved: (cfg) => {
+      aiConfig = cfg;
+      if (aiBtn) {
+        aiBtn.title = cfg.enabled ? `AI 助手：${cfg.model}` : "AI 助手（默认关闭）";
+      }
+      aiPanel?.refresh();
+    },
+    onClose: () => {
+      aiModalOpen = false;
+    },
+  });
+}
+
 /** Script manager (Roadmap-3): all IO/dialog work is injected into the modal. */
 function openScriptManager(): void {
   if (scriptModalOpen || document.querySelector(".script-modal") || document.querySelector(".keymap-modal")) {
@@ -4263,6 +4587,11 @@ function buildCommands(): Command[] {
     },
     { id: "fif", title: "在文件中查找…", run: () => openFindInFiles() },
     { id: "keymap", title: "快捷键设置…", run: () => openKeymapSettings() },
+    { id: "ai-panel", title: "AI 助手（打开 / 聚焦）", run: () => showAiPanel() },
+    { id: "ai-explain", title: "AI：解释选中日志行", run: () => void runAiScenario("explain") },
+    { id: "ai-errors", title: "AI：归纳错误模式", run: () => void runAiScenario("errors") },
+    { id: "ai-query", title: "AI：总结查询结果", run: () => void runAiScenario("query") },
+    { id: "ai-settings", title: "AI 设置（默认关闭）…", run: () => openAiSettings() },
     { id: "script", title: "脚本…", run: () => openScriptManager() },
     { id: "reload-plugins", title: "重载语法插件", run: () => void initSyntaxPlugins() },
     { id: "wrap", title: "切换自动换行", run: toggleEditorWrap },
@@ -4595,7 +4924,7 @@ function setBusy(b: boolean): void {
 
 function registerShortcuts(): void {
   window.addEventListener("keydown", (e) => {
-    if (keymapModalOpen || scriptModalOpen) return; // a modal owns the keyboard
+    if (keymapModalOpen || scriptModalOpen || aiModalOpen) return; // a modal owns the keyboard
     if (e.key === "F3") {
       // Only the read-only list view cycles query hits; in an editor let
       // CodeMirror's own searchKeymap handle F3 (avoids a double response).
@@ -4637,6 +4966,7 @@ void initRecovery();
 void initWatch();
 void initSyntaxPlugins();
 void initKeymap();
+void initAiConfig();
 void initRecent();
 void restoreSession();
 void openLaunchArgs();
