@@ -237,6 +237,7 @@ statusEl.id = "status";
 // they are safe before layout() runs.
 let sidebarEl: HTMLElement | null = null;
 let sidebarListEl: HTMLElement | null = null;
+let sidebarCountEl: HTMLElement | null = null;
 let sidebarHandleEl: HTMLElement | null = null;
 let inspectorEl: HTMLElement | null = null;
 let inspectorBodyEl: HTMLElement | null = null;
@@ -292,19 +293,33 @@ function layout(): void {
   const appName = document.createElement("span");
   appName.className = "app-name";
   appName.textContent = "LogLume";
-  bar.append(
-    appName,
-    mkBtn("打开文件", "", () => void openFile()),
-    mkBtn("查询", "行过滤 / 高亮命中", () => openQueryPanel()),
-    mkBtn("报文面板", "显示 / 隐藏 CAN 报文面板", () => toggleCanDock()),
-    mkBtn("测量", "打开 MF4 测量文件（表格浏览与导出）", () => void openMf4File()),
-    mkBtn("查看", "查看 xlsx / docx 文档（表格与文本）", () => void openViewerFile()),
-    mkBtn("脚本", "打开脚本管理器（QuickJS 逐行变换）", () => openScriptManager()),
-    mkBtn("解析", "用解析插件把当前文档解析为表格（plugins 目录）", () => toggleParserDock()),
-    mkBtn("侧栏", "显示 / 隐藏侧栏", () => toggleSidebar()),
-    mkBtn("信息", "显示 / 隐藏文档信息栏", () => toggleInspector()),
-    mkBtn("主题", "切换主题（浅色 / 暗黑 / 吸血鬼 / 跟随系统）", () => theme.cycle()),
+
+  // Toolbar hierarchy: NoteLume's Windows bar is app name + icon-only category
+  // buttons + spacer + window controls, with no dividers between groups. Labels
+  // live in tooltips/aria-labels so the bar stays a strip of 26px ghost icons.
+  const primary = document.createElement("div");
+  primary.className = "appbar-group";
+  primary.append(
+    mkBtn("", "打开文件（Ctrl+O）", () => void openFile(), "i-open"),
+    mkBtn("", "行过滤 / 高亮命中", () => openQueryPanel(), "i-search"),
+    mkBtn("", "显示 / 隐藏 CAN 报文面板", () => toggleCanDock(), "i-table"),
+    mkBtn("", "打开 MF4 测量文件（表格浏览与导出）", () => void openMf4File(), "i-wave"),
+    mkBtn("", "查看 xlsx / docx 文档（表格与文本）", () => void openViewerFile(), "i-doc"),
   );
+  const tools = document.createElement("div");
+  tools.className = "appbar-group";
+  tools.append(
+    mkBtn("", "打开脚本管理器（QuickJS 逐行变换）", () => openScriptManager(), "i-script"),
+    mkBtn("", "用解析插件把当前文档解析为表格（plugins 目录）", () => toggleParserDock(), "i-plug"),
+  );
+  const toggles = document.createElement("div");
+  toggles.className = "appbar-group";
+  toggles.append(
+    mkBtn("", "显示 / 隐藏侧栏", () => toggleSidebar(), "i-sidebar"),
+    mkBtn("", "显示 / 隐藏文档信息栏", () => toggleInspector(), "i-info"),
+    mkBtn("", "切换主题（浅色 / 暗黑 / 吸血鬼 / 跟随系统）", () => theme.cycle(), "i-theme"),
+  );
+  bar.append(appName, primary, tools, toggles);
 
   const drag = document.createElement("div");
   drag.className = "titlebar-drag";
@@ -313,9 +328,9 @@ function layout(): void {
   const winBtns = document.createElement("div");
   winBtns.className = "win-btns";
   winBtns.append(
-    mkWinBtn("﹣", "最小化", () => winAction("min")),
-    mkWinBtn("▢", "最大化 / 还原", () => winAction("max")),
-    mkWinBtn("✕", "关闭", () => winAction("close"), "close"),
+    mkWinBtn("i-win-min", "最小化", () => winAction("min")),
+    mkWinBtn("i-win-max", "最大化 / 还原", () => winAction("max")),
+    mkWinBtn("i-win-close", "关闭", () => winAction("close"), "close"),
   );
   bar.append(drag, winBtns);
 
@@ -325,7 +340,10 @@ function layout(): void {
   sidebarEl = aside;
   const asideTitle = document.createElement("div");
   asideTitle.className = "panel-title";
-  asideTitle.textContent = "已打开文档";
+  asideTitle.append(document.createTextNode("已打开文档"));
+  sidebarCountEl = document.createElement("span");
+  sidebarCountEl.className = "count";
+  asideTitle.append(sidebarCountEl);
   sidebarListEl = document.createElement("div");
   sidebarListEl.className = "side-list";
   const recoveryOption = document.createElement("label");
@@ -339,7 +357,10 @@ function layout(): void {
   // A shortcut-free entry: the palette itself may be unbound/cleared.
   const keymapBtn = mkBtn("快捷键设置…", "自定义快捷键", () => openKeymapSettings());
   keymapBtn.className = "side-action";
-  aside.append(asideTitle, sidebarListEl, recoveryOption, keymapBtn);
+  const sideFoot = document.createElement("div");
+  sideFoot.className = "side-foot";
+  sideFoot.append(recoveryOption, keymapBtn);
+  aside.append(asideTitle, sidebarListEl, sideFoot);
 
   // Right inspector: metadata for the active document + the ⚠ detail.
   const insp = document.createElement("aside");
@@ -398,24 +419,47 @@ function layout(): void {
   refreshPanels();
 }
 
-function mkBtn(label: string, title: string, on: () => void): HTMLButtonElement {
+/** Build an inline SVG icon from the sprite in index.html. */
+function icon(id: string): SVGSVGElement {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("class", "ico");
+  svg.setAttribute("aria-hidden", "true");
+  const use = document.createElementNS(NS, "use");
+  use.setAttribute("href", "#" + id);
+  svg.append(use);
+  return svg;
+}
+
+function mkBtn(
+  label: string,
+  title: string,
+  on: () => void,
+  iconId?: string,
+): HTMLButtonElement {
   const b = document.createElement("button");
-  b.textContent = label;
+  if (iconId) b.append(icon(iconId));
+  if (label) b.append(document.createTextNode(label));
+  else if (iconId) {
+    b.classList.add("icon-only");
+    if (title) b.setAttribute("aria-label", title);
+  }
   if (title) b.title = title;
   b.addEventListener("click", on);
   return b;
 }
 
 function mkWinBtn(
-  glyph: string,
+  iconId: string,
   title: string,
   on: () => void,
   extra = "",
 ): HTMLButtonElement {
   const b = document.createElement("button");
   b.className = "win-btn" + (extra ? " " + extra : "");
-  b.textContent = glyph;
+  b.append(icon(iconId));
   b.title = title;
+  b.setAttribute("aria-label", title);
   b.addEventListener("click", on);
   return b;
 }
@@ -474,11 +518,11 @@ function refreshSidebar(): void {
   if (!list) return;
   list.textContent = "";
   const infos = tabs.list();
+  if (sidebarCountEl) sidebarCountEl.textContent = infos.length ? String(infos.length) : "";
   const activeId = tabs.active()?.info.docId ?? null;
   if (infos.length === 0) {
     const empty = document.createElement("div");
     empty.className = "insp-empty";
-    empty.style.padding = "8px 10px";
     empty.textContent = "尚无打开的文档";
     list.append(empty);
     return;
@@ -496,6 +540,7 @@ function refreshSidebar(): void {
       row.append(m);
     }
     const label = document.createElement("span");
+    label.className = "side-name";
     label.textContent = basenameOf(info.path);
     row.append(label);
     row.addEventListener("click", () => tabs.activate(info.docId));
@@ -571,6 +616,9 @@ async function fillGitSection(path: string): Promise<void> {
   const box = document.getElementById("insp-git");
   if (!box || box.dataset.path !== path || token !== gitProbeToken) return;
   box.textContent = "";
+  // Drop the placeholder's `.insp-empty` padding before painting rows, or the
+  // whole Git block inherits its 24px/12px inset.
+  box.className = "";
   if (!info) return;
   if (info.unavailable) {
     box.textContent = info.unavailable;
@@ -3835,6 +3883,11 @@ function openQueryPanel(): void {
 
   const head = document.createElement("div");
   head.className = "search-head";
+  const opts = document.createElement("div");
+  opts.className = "query-opts";
+  const actions = document.createElement("div");
+  actions.className = "query-actions";
+  head.append(opts, actions);
   const conds = document.createElement("div");
   conds.className = "query-conds";
   const statusEl = document.createElement("span");
@@ -3850,9 +3903,9 @@ function openQueryPanel(): void {
     host.append(wrap);
     return box;
   };
-  const hideBox = chk("过滤到命中行", true, head);
-  const hlBox = chk("高亮命中", true, head);
-  const caseBox = chk("区分大小写", false, head);
+  const hideBox = chk("过滤到命中行", true, opts);
+  const hlBox = chk("高亮命中", true, opts);
+  const caseBox = chk("区分大小写", false, opts);
 
   let stopBtn: HTMLButtonElement; // assigned before any handler runs
   const btn = (label: string, onClick: () => void): HTMLButtonElement => {
@@ -3860,7 +3913,7 @@ function openQueryPanel(): void {
     b.type = "button";
     b.textContent = label;
     b.addEventListener("click", onClick);
-    head.append(b);
+    actions.append(b);
     return b;
   };
 

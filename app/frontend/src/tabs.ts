@@ -71,7 +71,19 @@ export class TabStrip {
     const label = document.createElement("span");
     label.className = "tab-label";
     label.textContent = basename(info.path);
-    el.append(dot, ext, label);
+    // Explicit close affordance (middle-click still works); the app's onClose
+    // owns the save-if-dirty decision, so this only forwards the intent.
+    const close = document.createElement("button");
+    close.className = "tab-x";
+    close.type = "button";
+    close.title = "关闭";
+    close.setAttribute("aria-label", "关闭");
+    close.textContent = "×";
+    close.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.requestClose(info.docId);
+    });
+    el.append(dot, ext, label, close);
     el.addEventListener("click", () => this.activate(info.docId));
     el.addEventListener("auxclick", (e) => {
       if ((e as MouseEvent).button === 1) this.requestClose(info.docId);

@@ -2,6 +2,31 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-09 — 完全对齐 NoteLume 真实样式（feat/ui-notelume，第 2 版）
+
+**依据：** NoteLume 官方 master 归档。`git clone` 被 GitHub HTTP/2 传输中断两次（`RPC failed; curl 92` / `early EOF`），改用 `https://codeload.github.com/HackerSnail/NoteLume/zip/refs/heads/master` 下载（15,969,200 字节）解压到 `%TEMP%\NoteLume-fresh`；`src/style.css` SHA-256 `5D6189CE595E8D5305CDC25C697307334F153E7B218BDEE7621A2C99DF04FF38`，与此前阅读的副本逐字节一致，差异表数值均取自该文件行号与 `src/source-editor.js:36-59`。第一版是「参考后自创」，被否；本版逐项照搬真实值。
+
+### Task. token 变量级替换 + 外壳/控件全量对齐
+**Files:** Modify `app/frontend/src/styles.css`（1) 三主题改用 NoteLume 原名与精确 hex——`--bg-primary/--bg-secondary/--text-primary/--text-secondary/--border-color/--accent-color/--code-bg/--pre-bg/--quote-bar/--hover`，light `#24292e/#8a9099/#e4e6e9/#2f6feb`、dark `#1e2127/#171a1f/#d8dee6/#7b828d/#2b3038/#5b8cff`、vampire（Dracula）`#282a36/#21222c/#f8f8f2/#6272a4/#44475a/#bd93f9`，补 `--highlight-*` 7 色与 vampire `::selection`；旧语义名 `--bg/--bg-panel/--fg/--muted/--border/--accent/--selection/--shadow-1..3/--overlay` 全部改为指向新源变量的别名，组件规则零改名的前提下整体换色。2) 控件基线去掉 `:focus-visible` 3px 光环与 hover `scale(.97)`——NoteLume focus 只改边框色、按钮 hover 只换底色；按钮 26px、padding 0 8、radius 6。3) 外壳按实测量：`.appbar` 内容驱动高 42px（padding 8 12 + 26 控件）、13px、`--bg-panel`，`.icon-only` 26×26 纯图标，窗口按钮 34×28（图标 13px，close hover `#e81123`），`.app-name` 12px/600 去品牌圆点；标签条 30px、标签 12px/padding 4 6 4 10/radius 6 6 0 0/上限 220；侧栏与检查器各 280px、padding 10、无左右边框；`.panel-title` 12px/600/uppercase/字距 .5px/muted；侧栏行 24px/radius 4/active 透明 + 左 3px 主题色条；检查器 frontmatter 行 flex/gap 8/12px、key 用 accent 等宽 + `:`、标签 `--hover` 底 accent 字 radius 4、输入 20px 透明底仅 focus 描边；编辑器 14px/line-height 1.7（`fontTheme` 的 FONT_BASE=14 本已一致，只改 CSS 口径）、`.cm-content` padding 8px 0、gutter 透明 + 右 1px 边线、active line 透明、active gutter 与 selection 用 `--hover`；`.listview` 等宽 20px 行高；MF4/CAN 表格回全网格 1px（`padding 4px 8px`、表头底 2px 600、去斑马纹）；查询面板改两行流式（`gap 6 12`、操作区 nowrap、`.query-cond` 四列 `84 84 1fr 26`）；palette 浮层 `--bg` + radius 10 + shadow-3、输入用 `--hover` 底；状态栏 30px/12px + 20px 幽灵 select；toast `--bg` + radius 6 + shadow-2；三向合并弹窗 420px/padding 16 18/gap 12/flex-column/按钮 12px padding 5 14；`.jump-panel` 改成 NoteLume 查找栏（`--bg-panel` + 1px + radius 8 + `0 4 16` 阴影 + padding 8）；`.line-hl` 改 `rgba(255,205,95,.45)`；文字过渡时长统一 100/120/150ms 且一律 ease/ease-out）；Modify `app/frontend/src/main.ts`（工具栏主区与工具区全部改 icon-only（`mkBtn("", 中文提示, fn, "i-xxx")`），删除 `appbarSep()` 分组竖线；检查器 Git 区块填充前清掉占位 class `insp-empty`，避免 24px/12px 内距污染整块）。
+**Why:** 旧版「参考后自创」的偏差集中在四类：① 色彩是近似值而非变量级同源（light 文字/边框/主题色全偏冷偏暗）；② 控件保留自作主张的焦点光环与 hover 缩放，NoteLume 两者都没有；③ 标题栏文字按钮 + 分组竖线 + 品牌圆点是 LogLume 自创形态；④ 编辑器 12.5px/正文 12px 内距与 NoteLume 14px/1.7 + 8px 不同。改为直接复用 NoteLume 的变量名与组件结构，主题切换只需替换 12 个源变量，后续不再各走一套。
+**验证:** `npm test` 231 pass（30 文件）；`npm run build`（`tsc --noEmit` + vite）通过；`cargo check --workspace` 通过；CDP 连真实窗口（`:9222`）vampire 与 light 两轮截图：工具栏 icon-only 无竖线、窗口按钮 34×28、图标按钮 26×26、状态栏 30px、标签连体、检查器 key 为 accent 等宽、查询面板两行不竖排；编辑器 14px、`.cm-content` 8px 0、gutter 右 1px 边线均实测吻合。
+**未验 / 无法照搬:** ① `.listview` 行高被 `listview.test.ts:28` 的 `ROW_HEIGHT=20` 锁定，只能用 20px 定高行，NoteLume 源码模式 1.7 倍行高无法套到虚拟列表（编辑器已对齐 1.7）；② 日志编辑器不启用行换行（长行横向滚动是产品语义），NoteLume 的软换行视觉不适用；③ 状态栏/表格里的 `select` 保持系统原生绘制（NoteLume 自身 select 同为原生外观，仅给 `--hover` 底 + 1px 边）；④ CAN 表格 / MF4 表格 / PDF 视口在 NoteLume 无对应形态，按同一套规则推导：1px `--border` 网格、`padding 4px 8px`、表头 sticky + 2px 底 + 600、hover 用 `--hover`、视口底色 `--bg` 且只用 1px 边线不加卡片阴影，推导依据为 NoteLume 表格规则与其「浮层才用阴影」的原则；⑤ 查询面板在 530px 中心区曾把中文按钮挤成竖排，已用 `flex-wrap` + `white-space:nowrap` 修好，属于 LogLume 独有布局的推导而非照搬。
+
+## 2026-11-09 — 界面重做：参考 NoteLume 的桌面外壳（feat/ui-notelume）
+
+**依据：** `docs/plans/2026-11-09-ui-notelume-redesign.md`（读 NoteLume `src/style.css` / `index.html` 后按区域列出的施工图）。纯前端样式与 DOM 钩子，Rust 零改动。
+
+### Task. 三主题 token + 控件基线 + 标题栏/侧栏/标签条/检查器/内容区/查询面板/状态栏/弹层
+**Files:** Modify `app/frontend/src/styles.css`（三主题源变量重写：三层色阶 `bg/bg-panel/bg-elevated`、`accent-soft`/`selection`/`shadow-1..3`/`overlay`、圆角与 4px 间距/字号/时长/z-index token，旧变量名保留为别名；`:where()` 零特异性控件基线覆盖 button/input/select/textarea + `:focus-visible` + `::selection`；`.appbar` 40px + 三组按钮 + 分组竖线 + 品牌圆点，窗口按钮 46×32 无圆角；侧栏 280 / 检查器 288、去掉左右边框改底色分区、30px 行 + 选中 3px 竖条 + `side-foot`；标签条 34px、active 页签与编辑区连体、新增 `.tab-x`；检查器 84px key 列、去掉逐行下划线、标签胶囊；编辑器/虚拟列表 12.5px/20px、gutter 透明、正文 12px 左内距；CAN/MF4 表格去竖分隔线 + 斑马纹 + 2px 表头；查询面板 28px 控件 + 条件网格；状态栏 28px + 幽灵下拉 + 20px 跟随胶囊；palette/模态/toast/恢复条统一 `bg-elevated + shadow-3 + r-lg`，90–160ms 过渡）；Modify `app/frontend/index.html`（内联 SVG sprite，14 个 `symbol`，`currentColor` 描边）；Modify `app/frontend/src/main.ts`（`icon()`/`appbarSep()`，`mkBtn` 支持 icon-only；工具条分三组：打开/查询/报文/测量/查看｜脚本/解析｜侧栏/信息/主题；窗口按钮换 sprite；侧栏标题计数 + `side-foot` 包裹「崩溃恢复 / 快捷键设置」；`side-name`；查询面板 opts/actions 分组）；Modify `app/frontend/src/tabs.ts`（16×16 `.tab-x`，复用 `requestClose` 并 `stopPropagation`）。
+**Why:** NoteLume 的精致来自统一的最小替换单元（1 套 token / 1 套图标 / 4 档圆角 / 3 档阴影 / 1 种 hover），不是单个炫技样式。LogLume 旧外壳的硬伤：原生控件无基线（系统边框与字体混进自定义面板）、工具条 10 个等权文字按钮、标题栏与工具条无视觉关系、边框泛滥、浅色底色差仅 1.6%、全站只有 1 条 transition。控件基线用 `:where()` 保持零特异性，避免压过 35KB 既有组件规则。
+**验证:** `npm test` 231 pass（30 文件）；`npm run build`（`tsc --noEmit` + vite）通过；`cargo check --workspace` 通过（纯前端改动未被牵连）；浏览器（vite :1420）浅色与暗色两轮截图确认标题栏三组、侧栏层级、状态栏、toast 正常；`listview.ts` 的 `ROW_HEIGHT=20` 与 `.can-hrow` 20px 未动。
+**未验:** 查询面板/CAN/MF4 表格在真实报文下的观感需人工过（截图只覆盖了文本文档）；浅色主题实机只看过 vite 页面。
+
+### 收口. 标题栏窗口按钮高度（实机验证后）
+**Files:** Modify `app/frontend/src/styles.css`（`.appbar button` 的 28px 高度按特异性压过 `.win-btn` 声明的 32px，新增 `.appbar .win-btn { height: 32px }`）。
+**Why:** CDP 实测窗口按钮只有 46×28，比设计少 4px 可点高度；声明值被覆盖却不报错，只能靠量 rect 发现。
+**验证:** CDP 连真实 Tauri 窗口（`:9222`）打开 `sample_gbk.log`：`.win-btn` 46×32、`.tab-x` 16×16、编辑器 `12.5px/20px`、检查器 13 行、状态栏在 y=692；`npm test` 231 pass；`npm run build` 通过；`cargo check --workspace` 通过。
+
 ## 2026-10-31 — Plan 46 替换预览（feat/replace-preview）
 
 **依据：** `docs/specs/2026-10-31-replace-preview-design.md`（同类盘点第二梯队之四）。纯前端，Rust 零改动。
