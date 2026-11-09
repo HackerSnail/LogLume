@@ -811,6 +811,143 @@ html.has-custom-titlebar .win-btns {
   background: var(--accent);
   color: #fff;
 }
+/* Generic text prompt (`promptdialog.ts`): same shell as NoteLume's
+ * `.nl-prompt` — 420px, bg/1px/radius 10/padding 16px 18px/gap 12, shadow
+ * 0 12 40 .28, 12px buttons at 5px/14px. */
+.prompt-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--overlay);
+}
+.prompt-box {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(420px, 86vw);
+  padding: 16px 18px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-3);
+}
+.prompt-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.prompt-msg {
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.prompt-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.prompt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.prompt-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.prompt-input {
+  height: 28px;
+  padding: 0 9px;
+  background: var(--bg-panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  font-family: inherit;
+}
+.prompt-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.prompt-input.invalid {
+  border-color: var(--danger);
+}
+.prompt-input:disabled {
+  opacity: 0.6;
+}
+.prompt-mono {
+  font-family: var(--font-mono);
+}
+.prompt-extra {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.prompt-select {
+  height: 28px;
+  padding: 0 6px;
+  background: var(--bg-panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  font-family: inherit;
+}
+.prompt-select:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.prompt-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.prompt-checkbox {
+  accent-color: var(--accent);
+  margin: 0;
+}
+.prompt-err,
+.prompt-form-err {
+  color: var(--danger);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.prompt-row {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.prompt-btn {
+  height: auto;
+  padding: 5px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--hover);
+  color: var(--fg);
+  font-size: 12px;
+  font-family: inherit;
+}
+.prompt-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.prompt-btn.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+.prompt-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
 /* Keyboard-shortcut settings (spec §5, M3 子项目 C). */
 .keymap-modal {
   position: fixed;
@@ -1913,6 +2050,18 @@ html.has-custom-titlebar .win-btns {
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
+.git-branch-menu-sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border);
+}
+.git-branch-new {
+  color: var(--accent);
+}
+.git-branch-new > .ico {
+  flex: none;
+  color: var(--accent);
+}
 .git-branch-row {
   display: flex;
   align-items: center;
@@ -2041,6 +2190,16 @@ html.has-custom-titlebar .win-btns {
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.git-sync-target-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.git-sync-target-btn:hover {
+  color: var(--accent);
 }
 .git-sync-state {
   flex: none;

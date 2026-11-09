@@ -194,6 +194,9 @@ export type IpcErrorCode =
   | "git_identity"
   | "git_no_remote"
   | "git_detached"
+  | "git_invalid_name"
+  | "git_invalid_url"
+  | "git_exists"
   | "no_upstream"
   | "non_fast_forward"
   | "auth"
@@ -235,6 +238,9 @@ const IPC_ERROR_ZH: Record<IpcErrorCode, string> = {
   git_identity: "缺少提交者身份%s",
   git_no_remote: "未配置 Git 远端%s",
   git_detached: "分离 HEAD 状态限制%s",
+  git_invalid_name: "名称不合 Git 规则%s",
+  git_invalid_url: "远端地址格式不受支持%s",
+  git_exists: "名称已被占用%s",
   no_upstream: "当前分支没有上游分支%s",
   non_fast_forward: "推送被拒绝，请先拉取远端更新%s",
   auth: "Git 认证失败%s",
@@ -1446,6 +1452,46 @@ export function gitCheckoutBranch(
   force = false,
 ): Promise<string> {
   return call<string>("git_checkout_branch", { root, name, force });
+}
+
+/**
+ * Create a branch at `startPoint` (commit id / rev, default HEAD) and switch to
+ * it unless `checkout` is false. Name rules are validated by the dialog first;
+ * the backend re-checks so a bad name never reaches the ref store.
+ */
+export function gitBranchCreate(
+  root: string,
+  name: string,
+  startPoint?: string,
+  checkout = true,
+): Promise<string> {
+  return call<string>("git_branch_create", {
+    root,
+    name,
+    startPoint: startPoint ?? null,
+    checkout,
+  });
+}
+
+/** Configured remotes, for the add/edit dialogs. */
+export interface GitRemoteInfo {
+  name: string;
+  url: string;
+}
+
+/** All configured remotes (config only). */
+export function gitRemotes(root: string): Promise<GitRemoteInfo[]> {
+  return call<GitRemoteInfo[]>("git_remotes", { root });
+}
+
+/** Add a remote (no network); name and URL are validated by the backend too. */
+export function gitRemoteAdd(root: string, name: string, url: string): Promise<void> {
+  return call<void>("git_remote_add", { root, name, url });
+}
+
+/** Change one remote's URL (the name is not renamed). */
+export function gitRemoteSetUrl(root: string, name: string, url: string): Promise<void> {
+  return call<void>("git_remote_set_url", { root, name, url });
 }
 
 /** Detached-HEAD checkout of a commit; the returned message says so. */

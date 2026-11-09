@@ -2,6 +2,26 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-09 — 新建分支 / 远端地址对话框（feat/git-dialogs）
+
+**依据：** NoteLume `src/prompt-dialog.js`（约 420px、radius 10、`0 12 40` 阴影、遮罩、Enter/Esc、行内错误）与 `src/git-panel.js` 的新建分支 / 远端编辑入口。
+
+### Task. 通用文本输入弹层
+**Files:** Add `app/frontend/src/promptdialog.ts`（`promptDialog({title, message, fields, extra, confirmLabel, cancelLabel, onSubmit})`：多字段、可插 select/checkbox 等额外控件、Enter 提交、Esc 取消、逐字段行内校验、提交中锁表单、`onSubmit` 抛错时保持打开并显示错误、关闭后焦点还原）；Add `app/frontend/src/promptdialog.test.ts`（5 例）；Modify `app/frontend/src/styles.css`（`.prompt-overlay/.prompt-box/.prompt-field/.prompt-btn` 等，420px/radius 10/`0 12 40`/遮罩）。
+**Why:** 之前只有 `ask` 确认框，没有文本输入，所以新建分支、远端编辑只能标“未实现”。`window.prompt` 在 Tauri webview 中不可靠，后续所有文本输入统一复用这个弹层。
+
+### Task. 新建分支
+**Files:** Modify `app/src-tauri/src/gitinfo.rs`（`git_branch_create(root, name, start_point, checkout)`：按 git ref 规则 + 重名校验；起点缺省 HEAD；`checkout` 冲突时删除刚建的分支并报 `[git_dirty]`，不动工作区；补 `branch_create_validates_names_and_applies_safe_checkout`）；Modify `app/src-tauri/src/commands.rs`、`app/src-tauri/src/lib.rs`（async + `spawn_blocking` 注册）；Modify `app/frontend/src/ipc.ts`（`gitBranchCreate`）；Modify `app/frontend/src/gitpanel.ts`（分支菜单底部“新建分支…”，名称行内校验、起点下拉 = HEAD + 最近 10 个提交、“创建后立即切换”默认勾选）。
+**Why/边界:** 名称规则前后端同一套，重名与非法名在输入处拦下，不靠后端抛错兜底；`[git_dirty]` 时新分支被删除，HEAD 与本地改动保持原样；起点不可解析时报 `[git]找不到起点 …`。
+
+### Task. 远端添加 / 编辑
+**Files:** Modify `app/src-tauri/src/gitinfo.rs`（`git_remotes`、`git_remote_add`、`git_remote_set_url` + `validate_remote_name`/`validate_remote_url`，补 `remote_add_edit_and_validation`）；commands/lib/ipc 同风格注册；Modify `app/frontend/src/gitpanel.ts`（无远端时同步区出现“添加远端”，有远端时点击 `origin · branch` 打开“编辑远端 origin”）。
+**边界:** 只写仓库配置，不联网；地址接受 https/http/ssh/git/file、scp 形 `user@host:path`、本地绝对路径，其余行内拒绝；远端名不允许空格/控制字符/`~^:?*[\@{}/`，不以 `-` 或 `.` 开头；重名两端都拒绝。
+
+**验证:** `cargo test --workspace` 362 pass / 0 failed（其中 app crate 160，含新增 2 例）；`cargo check --workspace` 通过；`npm test` 246 pass（32 文件）；`npm run build` 通过。真实窗口（CDP `:9222`）：新建 `verify/dialogs-1` 时行内拦住 `bad name`（空格）与重名 `feat/git-dialogs`，成功后 toast、HEAD 切到新分支且未提交改动保留；把 origin 改成 `https://example.com/plug-test.git`（行内拦住 `ftp:/nope`，`git remote get-url` 确认写入），再改回 gitee 原地址。测试分支与远端地址均已恢复。
+
+**未做:** 删除远端（prompt 只有确认/取消两个动作，删除需要独立的危险操作位；本轮不加假入口）；远端改名（`set-url` 只改地址）；分支起点自由输入任意 rev（下拉只提供 HEAD 与最近 10 个提交）。
+
 ## 2026-11-09 — Git 写操作 / 分支 / 远端 / 冲突补齐（feat/git-commands）
 
 **依据：** NoteLume `src/git-panel.js`（变更行工具、graph 行的 checkout/revert、分支菜单、同步区的 fetch/pull/push 与 ahead/behind、冲突行、merge bar）与 `src-tauri/src/git_builtin.rs`（revert、merge、upstream、checkout safe/force 语义）。

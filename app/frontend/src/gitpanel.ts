@@ -7,13 +7,14 @@
 //! section titles and diff) follow `style.css:4522-5080`.
 //!
 //! Every affordance here is a real git2 call from `app/src-tauri/src/gitinfo.rs`
-//! — no fake buttons. Still absent on purpose: new-branch creation and remote
-//! add/edit (they need extra forms/dialogs, and NoteLume's dialogs have no
-//! LogLume equivalent yet).
+//! — no fake buttons. Text input (new branch, remote URL) uses the in-app
+//! prompt from `promptdialog.ts`; NoteLume's own native dialogs have no
+//! LogLume equivalent.
 
 import { ask } from "@tauri-apps/plugin-dialog";
 import {
   gitBranches,
+  gitBranchCreate,
   gitCheckoutBranch,
   gitCheckoutCommit,
   gitCommitAll,
@@ -29,6 +30,9 @@ import {
   gitProbe,
   gitPull,
   gitPush,
+  gitRemoteAdd,
+  gitRemotes,
+  gitRemoteSetUrl,
   gitRemoteStatus,
   gitResolveConflict,
   gitRevertCommit,
@@ -43,6 +47,7 @@ import {
   type GitInfo,
   type GitRemoteStatus,
 } from "./ipc";
+import { promptDialog } from "./promptdialog";
 
 export interface GitPanelHooks {
   toast: (msg: string) => void;
@@ -71,6 +76,57 @@ const KIND_LABEL: Record<string, string> = {
 
 const GW = 14; // one lane's horizontal width (NoteLume's graph)
 const FOLD_KEY = "lumelog.git-fold.";
+
+const REF_PUNCT = ["~", "^", ":", "?", "*", "[", "\\"];
+
+/** git's `check-ref-format --branch` rules, evaluated inline so an invalid name
+ *  never reaches the backend. `existing` is the local branch list for dupes. */
+export function branchNameError(name: string, existing: string[] = []): string | null {
+  if (name === "") return "请输入分支名";
+  if (name === "@") return "分支名不能只有一个 @";
+  if (/[\x00-\x20\x7f]/.test(name)) return "分支名不能包含空格或控制字符";
+  if (name.startsWith("-")) return "分支名不能以 - 开头";
+  if (REF_PUNCT.some((c) => name.includes(c))) {
+    return "分支名不能包含 ~ ^ : ? * [ \\ 等字符";
+  }
+  if (name.includes("..")) return "分支名不能包含 ..";
+  if (name.includes("@{")) return "分支名不能包含 @{";
+  if (name.startsWith("/") || name.endsWith("/") || name.includes("//")) {
+    return "分支名不能以 / 开头结尾，也不能有连续的 /";
+  }
+  if (name.startsWith(".") || name.endsWith(".")) return "分支名不能以 . 开头或结尾";
+  const parts = name.split("/");
+  if (parts.some((p) => p.startsWith("."))) return "分支名的每一段都不能以 . 开头";
+  if (parts.some((p) => p.endsWith(".lock"))) return "分支名的每一段都不能以 .lock 结尾";
+  if (existing.includes(name)) return `分支 ${name} 已存在`;
+  return null;
+}
+
+/** Remote names: letters/digits/. _ - only, not starting with - or ., no `/`. */
+export function remoteNameError(name: string, existing: string[] = []): string | null {
+  if (name === "") return "请输入远端名";
+  if (name.startsWith("-") || name.startsWith(".")) return "远端名不能以 - 或 . 开头";
+  if (name.includes("/")) return "远端名不能包含 /";
+  if (name.includes("..")) return "远端名不能包含 ..";
+  if (/[\x00-\x20\x7f]/.test(name)) return "远端名不能包含空格或控制字符";
+  if ([...REF_PUNCT, "@", "{", "}"].some((c) => name.includes(c))) {
+    return "远端名不能包含 ~ ^ : ? * [ \\ @ { } 等字符";
+  }
+  if (existing.includes(name)) return `远端 ${name} 已存在`;
+  return null;
+}
+
+/** Accept http(s)/ssh/git/file URLs, scp-like `user@host:path`, and local
+ *  absolute paths — the same shapes the backend re-checks. */
+export function remoteUrlError(url: string): string | null {
+  if (url === "") return "请输入远端地址";
+  if (/\s/.test(url)) return "地址不能包含空格";
+  if (/^(https?|ssh|git):\/\/[^\s/]+/i.test(url)) return null;
+  if (/^file:\/\/[^\s]+/i.test(url)) return null;
+  if (/^[^\s@]+@[^\s:/]+:[^\s]+$/.test(url)) return null;
+  if (/^([A-Za-z]:[\\/]|[\\/])/.test(url)) return null;
+  return "地址需形如 https://host/path、ssh://host/path 或 git@host:path";
+}
 
 /** Fold state (true = collapsed) survives refresh and tab switches, like
  *  NoteLume's `nl-git-fold.<key>` localStorage entries. */
@@ -203,6 +259,8 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
   let menuCleanup: (() => void) | null = null;
   /** Last remote snapshot, reused by the sync buttons' disabled state. */
   let remote: GitRemoteStatus | null = null;
+  /** Last commit list, offered as start points when creating a branch. */
+  let lastCommits: GitCommit[] = [];
 
   box.dataset.path = path;
   box.className = "git-panel";
@@ -255,6 +313,7 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
     if (stale()) return;
 
     remote = rs;
+    lastCommits = commits;
     buildHead(info, changes.length);
     renderBody(root, info, changes, commits, merging);
   }
@@ -375,6 +434,75 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
       pop.append(sep);
       for (const b of remoteBranches) pop.append(branchRow(root, b, pop));
     }
+    pop.append(el("div", "git-branch-menu-sep"));
+    const create = el("button", "git-branch-row git-branch-new");
+    create.setAttribute("role", "menuitem");
+    create.append(icon("i-plus"));
+    const label = el("span", "git-branch-row-name");
+    label.textContent = "新建分支…";
+    create.append(label);
+    create.title = "从 HEAD 或指定提交创建分支";
+    create.addEventListener("click", () => {
+      closeMenu();
+      void doNewBranch(root, branches);
+    });
+    pop.append(create);
+  }
+
+  /** New-branch dialog: name + start point + "switch now". Name rules and
+   *  duplicates are caught inline; the backend re-checks before creating. */
+  async function doNewBranch(root: string, branches: GitBranchInfo[]): Promise<void> {
+    if (busy) return;
+    const local = branches.filter((b) => !b.remote);
+    const existing = local.map((b) => b.name);
+    const current = local.find((b) => b.current)?.name ?? "HEAD";
+    const done = await promptDialog({
+      title: "新建分支",
+      message: "默认从 HEAD 创建；也可以选择一条已有提交作为起点。",
+      fields: [
+        {
+          key: "name",
+          label: "分支名",
+          placeholder: "例如 feat/my-branch",
+          mono: true,
+          validate: (v) => branchNameError(v, existing),
+        },
+      ],
+      extra: (body) => {
+        const startLabel = el("label", "prompt-label");
+        startLabel.textContent = "起点";
+        const start = el("select", "prompt-select");
+        const head = el("option");
+        head.value = "HEAD";
+        head.textContent = `HEAD（${current}）`;
+        start.append(head);
+        for (const c of lastCommits.slice(0, 10)) {
+          const opt = el("option");
+          opt.value = c.id;
+          opt.textContent = `${c.id_short} ${c.summary}`;
+          start.append(opt);
+        }
+        const check = el("label", "prompt-check");
+        const boxEl = el("input", "prompt-checkbox");
+        boxEl.type = "checkbox";
+        boxEl.checked = true;
+        const checkText = el("span");
+        checkText.textContent = "创建后立即切换";
+        check.append(boxEl, checkText);
+        body.append(startLabel, start, check);
+        return () => ({
+          startPoint: start.value === "HEAD" ? undefined : start.value,
+          checkout: boxEl.checked,
+        });
+      },
+      confirmLabel: "创建",
+      onSubmit: async (values, extra) => {
+        const opts = extra as { startPoint?: string; checkout: boolean };
+        const msg = await gitBranchCreate(root, values.name, opts.startPoint, opts.checkout);
+        hooks.toast(msg);
+      },
+    });
+    if (done) await load();
   }
 
   function branchRow(root: string, b: GitBranchInfo, pop: HTMLElement): HTMLElement {
@@ -685,9 +813,19 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
       state.textContent = "添加 origin 后可获取 / 拉取 / 推送";
       state.classList.add("git-sync-dim");
     } else {
-      target.title = rs.url ?? "";
-      const branchLabel = rs.detached ? "分离 HEAD" : rs.branch ?? "（无提交）";
-      target.textContent = `${rs.remote ?? "origin"} · ${branchLabel}`;
+      target.textContent = `${rs.remote ?? "origin"} · ${rs.detached ? "分离 HEAD" : rs.branch ?? "（无提交）"}`;
+      target.title = `${rs.url ?? ""}（点击修改地址）`;
+      target.classList.add("git-sync-target-btn");
+      target.setAttribute("role", "button");
+      target.tabIndex = 0;
+      const edit = (): void => void editRemote(root, rs);
+      target.addEventListener("click", edit);
+      target.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          edit();
+        }
+      });
       if (rs.detached) {
         state.textContent = "分离 HEAD";
         state.classList.add("git-sync-dim");
@@ -733,6 +871,16 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
     };
 
     const detached = rs?.detached === true;
+    if (!hasRemote) {
+      const add = el("button", "git-btn git-sync-btn");
+      add.append(icon("i-plus"));
+      const text = el("span");
+      text.textContent = "添加远端";
+      add.append(text);
+      add.title = "输入远端名与地址（保存到仓库配置，不联网）";
+      add.addEventListener("click", () => void addRemote(root));
+      actions.append(add);
+    }
     actions.append(
       tool(
         "i-globe",
@@ -823,6 +971,70 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
       busy = false;
       syncCommit?.();
     }
+  }
+
+  /** Add a remote: name + URL, both validated inline (duplicates included). */
+  async function addRemote(root: string): Promise<void> {
+    if (busy) return;
+    let existing: string[] = [];
+    try {
+      existing = (await gitRemotes(root)).map((r) => r.name);
+    } catch (err) {
+      hooks.error(err);
+      return;
+    }
+    const done = await promptDialog({
+      title: "添加远端",
+      message: "远端地址写入仓库配置，不会立即联网。",
+      fields: [
+        {
+          key: "name",
+          label: "远端名",
+          value: "origin",
+          mono: true,
+          validate: (v) => remoteNameError(v, existing),
+        },
+        {
+          key: "url",
+          label: "地址",
+          placeholder: "https://github.com/user/repo.git",
+          mono: true,
+          validate: remoteUrlError,
+        },
+      ],
+      confirmLabel: "添加",
+      onSubmit: async (values) => {
+        await gitRemoteAdd(root, values.name, values.url);
+        hooks.toast(`已添加远端 ${values.name}`);
+      },
+    });
+    if (done) await load();
+  }
+
+  /** Edit the URL of the remote the sync block is showing; the name is fixed
+   *  (renaming a remote is not part of `git remote set-url`). */
+  async function editRemote(root: string, rs: GitRemoteStatus): Promise<void> {
+    if (busy) return;
+    const name = rs.remote ?? "origin";
+    const done = await promptDialog({
+      title: `编辑远端 ${name}`,
+      message: "只修改地址，远端名保持不变。",
+      fields: [
+        {
+          key: "url",
+          label: "地址",
+          value: rs.url ?? "",
+          mono: true,
+          validate: remoteUrlError,
+        },
+      ],
+      confirmLabel: "保存",
+      onSubmit: async (values) => {
+        await gitRemoteSetUrl(root, name, values.url);
+        hooks.toast(`已更新远端 ${name} 的地址`);
+      },
+    });
+    if (done) await load();
   }
 
   // ---- collapsible sections ----------------------------------------------
