@@ -2,6 +2,12 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-09 — 修复 AI 面板在非日志文件上使用日志专用文案/动作
+
+**Files:** Add `app/frontend/src/docKind.ts`（`isLogDocument(path)`：代码/配置/数据/文档类扩展名判为非日志，`.log/.txt/无扩展名` 判为日志）+ `docKind.test.ts`；Modify `app/frontend/src/aipanel.ts`（空态标题/说明、模式下拉、placeholder、system prompt 按 `setDocKind(isLog)` 切换；非日志禁用「归纳错误模式」「总结查询结果」，explain 改「解释选中内容」）；Modify `app/frontend/src/aitasks.ts`（`buildExplainMessages` 新增 `isLog`，非日志使用文件语气与 `FILE_SYSTEM_PROMPT`）；Modify `app/frontend/src/main.ts`（`refreshPanels` 同步文档类型；右键 AI 子菜单按类型裁剪；`runAiScenario` 对非日志的 errors/query 明确阻断）；Modify `app/frontend/src/aipanel.test.ts`（新增非日志文案/禁用模式用例）。
+**Why:** 用户截图指出：当前文件不是日志时，AI 面板仍显示「针对当前日志提问」并提供日志专用动作，属于文案与功能错配。
+**验证:** `npx tsc --noEmit` 通过；全量 `npx vitest run` 37 文件 / 285 tests 全绿。
+
 ## 2026-11-09 — 修复 gitpanel 测试在 Node 26 下的 localStorage 缺失
 
 **Files:** Modify `app/frontend/src/gitpanel.test.ts`（为测试注入内存版 `localStorage`：`Map` 实现 `Storage` 接口，经 `Object.defineProperty(globalThis, "localStorage", ...)` 安装，`beforeEach` 的 `localStorage.clear()` 恢复可用）。

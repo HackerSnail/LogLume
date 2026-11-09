@@ -142,6 +142,7 @@ import {
 } from "./shell";
 import { filterCommands, type Command } from "./palette";
 import { showContextMenu, type CtxRow } from "./contextmenu";
+import { isLogDocument } from "./docKind";
 import { parseBookmarkStore, serializeBookmarkStore, type BookmarkStore } from "./bookmarks-store";
 import {
   formatJson,
@@ -870,9 +871,29 @@ function openInputContextMenu(e: MouseEvent, target: HTMLElement): void {
   showContextMenu(e.clientX, e.clientY, rows);
 }
 
+function aiMenuItems(isLog: boolean, canExplain: boolean): CtxRow[] {
+  const rows: CtxRow[] = [
+    {
+      label: isLog ? "解释选中行" : "解释选中内容",
+      icon: "i-spark",
+      disabled: !canExplain,
+      run: () => void runAiScenario("explain"),
+    },
+  ];
+  if (isLog) {
+    rows.push(
+      { label: "归纳错误模式", icon: "i-spark", run: () => void runAiScenario("errors") },
+      { label: "总结查询结果", icon: "i-spark", run: () => void runAiScenario("query") },
+    );
+  }
+  rows.push("sep", { label: "AI 设置…", run: () => openAiSettings() });
+  return rows;
+}
+
 function openEditorContextMenu(e: MouseEvent, handle: EditorHandle): void {
   const view = handle.view;
   const hasSel = !view.state.selection.main.empty;
+  const logDoc = isLogDocument(tabs.active()?.info.path ?? null);
   const copy = (): void => {
     const s = view.state.selection.main;
     if (!s.empty) copyText(view.state.sliceDoc(s.from, s.to), "已复制");
@@ -957,13 +978,7 @@ function openEditorContextMenu(e: MouseEvent, handle: EditorHandle): void {
     {
       label: "AI",
       icon: "i-spark",
-      items: [
-        { label: "解释选中行", disabled: !hasSel, run: () => void runAiScenario("explain") },
-        { label: "归纳错误模式", run: () => void runAiScenario("errors") },
-        { label: "总结查询结果", run: () => void runAiScenario("query") },
-        "sep",
-        { label: "AI 设置…", run: () => openAiSettings() },
-      ],
+      items: aiMenuItems(logDoc, hasSel),
     },
     "sep",
     {
@@ -993,6 +1008,7 @@ function openListContextMenu(e: MouseEvent, list: ListView, docId: number): void
   }
   const sel = list.selectedLines();
   const count = sel ? sel.to - sel.from + 1 : 0;
+  const logDoc = isLogDocument(tabs.active()?.info.path ?? null);
   const copySelected = (): void => {
     if (!sel) return;
     void (async () => {
@@ -1016,12 +1032,10 @@ function openListContextMenu(e: MouseEvent, list: ListView, docId: number): void
     },
     "sep",
     {
-      label: "AI：解释选中行",
+      label: "AI",
       icon: "i-spark",
-      disabled: !sel,
-      run: () => void runAiScenario("explain"),
+      items: aiMenuItems(logDoc, !!sel),
     },
-    { label: "AI：归纳错误模式", icon: "i-spark", run: () => void runAiScenario("errors") },
     "sep",
     { label: "打开查询面板（过滤 / 高亮）", icon: "i-search", run: () => openQueryPanel() },
     {
@@ -1327,6 +1341,7 @@ function buildTagBlock(path: string): HTMLElement {
 function refreshPanels(): void {
   refreshSidebar();
   updateInspector(tabs.active()?.info.docId ?? null);
+  aiPanel?.setDocKind(isLogDocument(tabs.active()?.info.path ?? null));
   switchCanView();
 }
 
@@ -4353,6 +4368,7 @@ async function buildExplainContext(docId: number, st: DocState): Promise<AiConte
       to,
       totalLines: view.state.doc.lines,
       lines,
+      isLog: isLogDocument(st.path),
     });
   }
 
@@ -4378,6 +4394,7 @@ async function buildExplainContext(docId: number, st: DocState): Promise<AiConte
     to: sel.to + 1,
     totalLines: st.totalLines,
     lines,
+    isLog: isLogDocument(st.path),
   });
 }
 
@@ -4507,6 +4524,10 @@ async function runAiScenario(kind: AiScenario, note?: string): Promise<void> {
   if (!aiConfig?.enabled) {
     // Explicit unavailable state: guidance card + inline reason, never silent.
     aiPanel?.reportBlocked("AI 未启用：请先在 AI 设置中开启并填写接口");
+    return;
+  }
+  if (kind !== "explain" && !isLogDocument(st.path)) {
+    aiPanel?.reportBlocked("当前文件不是日志：该动作仅适用于日志文件");
     return;
   }
   if (aiPanel?.isBusy === true) {

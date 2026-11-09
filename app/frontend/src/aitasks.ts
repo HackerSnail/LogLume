@@ -36,6 +36,16 @@ const SYSTEM_PROMPT = [
   "5. 不要输出与日志无关的泛泛而谈。",
 ].join("\n");
 
+const FILE_SYSTEM_PROMPT = [
+  "你是 LogLume 的文件内容分析助手。",
+  "规则：",
+  "1. 只依据用户提供的文件行作答；不要编造未出现的内容、行号或字段。",
+  "2. 区分“文件中可见的事实”和“你的推测”，推测必须标注为推测。",
+  "3. 引用依据时使用给出的行号（如 L123）。",
+  "4. 用中文回答，先给结论，再给依据和下一步建议。",
+  "5. 不要输出与文件内容无关的泛泛而谈。",
+].join("\n");
+
 export interface Clamped {
   lines: LogLine[];
   /** True when some input lines were dropped (line-count or char budget). */
@@ -87,20 +97,25 @@ export interface ExplainInput {
   to: number;
   totalLines: number;
   lines: LogLine[];
+  /** False for code/config/data files: use file wording, not log wording. */
+  isLog?: boolean;
 }
 
 /** "解释选中日志行" — selection plus a few lines of context on each side. */
 export function buildExplainMessages(input: ExplainInput): AiContext {
   const { lines, truncated } = clampLines(input.lines);
+  const isLog = input.isLog !== false;
   const range = input.from === input.to ? `第 ${input.from} 行` : `第 ${input.from}–${input.to} 行`;
   const body = [
     `文件：${input.path}`,
     `选中范围：${range}（文件共 ${input.totalLines} 行）`,
     truncated ? `注意：上下文样例已截断，只包含 ${lines.length} 行。` : "",
-    "日志行（行号 | 内容）：",
+    isLog ? "日志行（行号 | 内容）：" : "文件内容（行号 | 内容）：",
     renderLines(lines),
     "",
-    "请解释这段日志：发生了什么、涉及哪些错误码/超时/重试，最可能的原因是什么，下一步应该查什么。",
+    isLog
+      ? "请解释这段日志：发生了什么、涉及哪些错误码/超时/重试，最可能的原因是什么，下一步应该查什么。"
+      : "请解释这段内容：它实现了什么、关键逻辑或结构是什么、有哪些潜在问题，下一步建议看哪里。",
   ]
     .filter((s) => s !== "")
     .join("\n");
@@ -109,7 +124,7 @@ export function buildExplainMessages(input: ExplainInput): AiContext {
       truncated ? "（已截断）" : ""
     }`,
     messages: [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: isLog ? SYSTEM_PROMPT : FILE_SYSTEM_PROMPT },
       { role: "user", content: body },
     ],
   };

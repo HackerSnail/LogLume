@@ -194,4 +194,36 @@ describe("AI panel · single transcript", () => {
     panel.setExpanded(true);
     expect(panel.root.classList.contains("ai-collapsed")).toBe(false);
   });
+
+  it("switches copy and disables log-only modes for non-log documents", () => {
+    const { panel } = setup(false);
+    const title = panel.root.querySelector(".ai-empty-title") as HTMLElement;
+    const body = panel.root.querySelector(".ai-empty-body") as HTMLElement;
+    const mode = panel.root.querySelector(".ai-mode") as HTMLSelectElement;
+    const input = panel.root.querySelector(".ai-input-box") as HTMLTextAreaElement;
+    const opt = (value: string): HTMLOptionElement =>
+      [...mode.options].find((o) => o.value === value) as HTMLOptionElement;
+
+    expect(title.textContent).toBe("针对当前日志提问");
+    expect(opt("explain").textContent).toBe("解释选中行");
+    expect(opt("errors").disabled).toBe(false);
+    expect(input.placeholder).toContain("询问这段日志");
+
+    panel.setDocKind(false);
+    expect(title.textContent).toBe("针对当前文件提问");
+    expect(body.textContent).toContain("仅适用于日志");
+    expect(opt("explain").textContent).toBe("解释选中内容");
+    expect(opt("errors").disabled).toBe(true);
+    expect(opt("query").disabled).toBe(true);
+    expect(input.placeholder).toContain("询问当前内容");
+
+    mode.value = "explain";
+    mode.dispatchEvent(new Event("change"));
+    expect(input.placeholder).toContain("解释选中的内容");
+
+    panel.setDocKind(true);
+    expect(title.textContent).toBe("针对当前日志提问");
+    expect(opt("explain").textContent).toBe("解释选中行");
+    expect(opt("errors").disabled).toBe(false);
+  });
 });

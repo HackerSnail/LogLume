@@ -1,0 +1,85 @@
+//! Classify the active document for AI copy and action gating. LogLume's
+//! scenarios were written for logs; on code/config/data files the panel must
+//! not claim "当前日志", and 错误模式/查询总结 must not be offered.
+
+/** Extensions that are clearly not logs (code, markup, config, data, binary). */
+const NON_LOG_EXTENSIONS = new Set([
+  "rs",
+  "ts",
+  "tsx",
+  "js",
+  "jsx",
+  "mjs",
+  "cjs",
+  "java",
+  "c",
+  "h",
+  "cc",
+  "cpp",
+  "cxx",
+  "hpp",
+  "cs",
+  "go",
+  "py",
+  "rb",
+  "php",
+  "swift",
+  "kt",
+  "kts",
+  "scala",
+  "sh",
+  "bash",
+  "zsh",
+  "fish",
+  "ps1",
+  "bat",
+  "cmd",
+  "json",
+  "jsonc",
+  "json5",
+  "xml",
+  "html",
+  "htm",
+  "css",
+  "scss",
+  "sass",
+  "less",
+  "md",
+  "markdown",
+  "yaml",
+  "yml",
+  "toml",
+  "ini",
+  "cfg",
+  "conf",
+  "properties",
+  "sql",
+  "graphql",
+  "gql",
+  "proto",
+  "csv",
+  "tsv",
+  "xlsx",
+  "xls",
+  "docx",
+  "doc",
+  "pdf",
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "svg",
+  "webp",
+]);
+
+/**
+ * True for log-like text: `.log/.txt/.out/…` and extension-less files.
+ * `null` (no active document) is not a log document.
+ */
+export function isLogDocument(path: string | null): boolean {
+  if (!path) return false;
+  const base = path.split(/[\\/]/).pop() ?? "";
+  const dot = base.lastIndexOf(".");
+  if (dot <= 0) return true;
+  return !NON_LOG_EXTENSIONS.has(base.slice(dot + 1).toLowerCase());
+}
