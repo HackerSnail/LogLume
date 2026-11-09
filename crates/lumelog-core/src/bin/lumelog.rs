@@ -20,7 +20,7 @@ use std::process::ExitCode;
 use lumelog_core::doc::{save_text, DocFile, EolStyle, OverwritePolicy, SaveOptions};
 use lumelog_core::encoding::EncodingLabel;
 use lumelog_core::error::CoreError;
-use lumelog_core::search::{search_stream, Match, Mode, SearchQuery};
+use lumelog_core::search::{search_stream_capped, Match, Mode, SearchQuery};
 
 /// Open size cap: reject a >4 GiB file at stat time, before reading anything.
 /// This mirrors the shell's `u32::MAX` line-index ceiling (`validate_open_path`)
@@ -69,6 +69,37 @@ impl Args {
     fn has(&self, key: &str) -> bool {
         self.flags.iter().any(|(k, _)| k == key)
     }
+
+    /// Reject options the subcommand does not know instead of silently ignoring
+    /// them (B22: `--mode fuzzy` used to exit 0). Valid positional values and
+    /// encoding aliases are unaffected — only flag names are checked.
+    fn validate(&self) -> Result<(), String> {
+        let allowed: &[&str] = match self.sub.as_str() {
+            "open" => &["file", "encoding", "line-count", "head"],
+            "search" => &[
+                "file",
+                "pattern",
+                "encoding",
+                "regex",
+                "ignore-case",
+                "max",
+            ],
+            // `--stdin` is accepted for compatibility: save always reads the new
+            // text from stdin, and older scripts pass the flag explicitly.
+            "save" => &["file", "encoding", "eol", "out", "stdin"],
+            // An unknown subcommand is reported by the dispatcher.
+            _ => return Ok(()),
+        };
+        for (key, _) in &self.flags {
+            if !allowed.contains(&key.as_str()) {
+                return Err(format!(
+                    "unknown option '--{key}' for subcommand '{}'",
+                    self.sub
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 fn main() -> ExitCode {
@@ -84,6 +115,10 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    if let Err(msg) = args.validate() {
+        eprintln!("lumelog: {msg}\n{USAGE}");
+        return ExitCode::from(2);
+    }
     let out = std::io::stdout();
     let mut lock = out.lock();
     let result = match args.sub.as_str() {
@@ -203,16 +238,11 @@ fn cmd_search(args: &Args, out: &mut impl Write) -> Result<(), CliError> {
         case_sensitive,
     };
 
-    let mut printed: u64 = 0;
-    let mut overflowed = false;
-    let stats = search_stream(
+    let stats = search_stream_capped(
         &mut doc,
         &q,
+        max,
         |m: Match| {
-            if max.is_some_and(|cap| printed >= cap) {
-                overflowed = true;
-                return;
-            }
             let _ = writeln!(
                 out,
                 "{{\"line\":{},\"byte_in_line\":{},\"len\":{},\"snippet\":\"{}\"}}",
@@ -221,17 +251,19 @@ fn cmd_search(args: &Args, out: &mut impl Write) -> Result<(), CliError> {
                 m.len,
                 json_escape(&m.snippet),
             );
-            printed += 1;
         },
         |_| true,
     )?;
+    // The scan always reports the exact total hit count; `truncated` means the
+    // output was capped below that total (a cap of 0 still prints nothing).
+    let truncated = max.is_some_and(|cap| stats.matches > cap);
     writeln!(
         out,
         "{{\"matches\":{},\"scanned_bytes\":{},\"cancelled\":{},\"truncated\":{}}}",
         stats.matches,
         stats.scanned_bytes,
         stats.cancelled,
-        overflowed,
+        truncated,
     )?;
     Ok(())
 }

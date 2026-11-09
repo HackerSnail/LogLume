@@ -87,7 +87,30 @@ pub fn search_stream(
     mut on_match: impl FnMut(Match),
     mut progress: impl FnMut(u64) -> bool,
 ) -> Result<SearchStats, CoreError> {
-    search_with_window(doc, q, &mut on_match, &mut progress, WINDOW, OVERLAP)
+    search_with_window(doc, q, &mut on_match, &mut progress, WINDOW, OVERLAP, None)
+}
+
+/// Like [`search_stream`], but with an output cap: once `max_matches` hits have
+/// been handed to `on_match`, the scan stops doing per-hit line lookups and
+/// snippet construction (the dominant cost on dense queries) while still
+/// counting the remaining matches so `SearchStats::matches` stays exact.
+/// `None` is the unchanged whole-file behavior of [`search_stream`].
+pub fn search_stream_capped(
+    doc: &mut DocFile,
+    q: &SearchQuery,
+    max_matches: Option<u64>,
+    mut on_match: impl FnMut(Match),
+    mut progress: impl FnMut(u64) -> bool,
+) -> Result<SearchStats, CoreError> {
+    search_with_window(
+        doc,
+        q,
+        &mut on_match,
+        &mut progress,
+        WINDOW,
+        OVERLAP,
+        max_matches,
+    )
 }
 
 /// Testable core: same as [`search_stream`] but with the window/overlap sizes
@@ -100,6 +123,7 @@ fn search_with_window(
     progress: &mut impl FnMut(u64) -> bool,
     window: usize,
     overlap: usize,
+    max_matches: Option<u64>,
 ) -> Result<SearchStats, CoreError> {
     let re = build_regex(q)?;
     // Each window advances by (window - overlap); the trailing `overlap` bytes
@@ -107,6 +131,7 @@ fn search_with_window(
     debug_assert!(window > overlap, "window must exceed overlap so step > 0");
     let step = (window - overlap) as u64;
     let mut cursor: u64 = 0;
+    let mut emitted: u64 = 0;
     let mut stats = SearchStats {
         matches: 0,
         scanned_bytes: 0,
@@ -139,6 +164,14 @@ fn search_with_window(
             if abs >= committed_end {
                 break; // later matches start even further into the tail
             }
+            stats.matches += 1;
+            resume = resume.max(win_start + m.end() as u64);
+            // Cap reached: keep counting raw matches (the summary must stay
+            // exact) but skip the per-hit line lookup + snippet build, which
+            // dominates dense scans (131k hits -> ~49s before this guard).
+            if max_matches.is_some_and(|cap| emitted >= cap) {
+                continue;
+            }
             let len = m.end() - m.start();
             let line = doc.line_at_byte(abs) as u32;
             let line_start = doc
@@ -153,8 +186,7 @@ fn search_with_window(
                 len,
                 snippet,
             });
-            stats.matches += 1;
-            resume = resume.max(win_start + m.end() as u64);
+            emitted += 1;
         }
 
         stats.scanned_bytes = win_start + win_len;
@@ -331,6 +363,7 @@ mod tests {
             &mut |_| true,
             8,
             4,
+            None,
         )
         .unwrap();
         let starts: Vec<u64> = hits.iter().map(|h| h.byte_in_line).collect();
@@ -360,6 +393,7 @@ mod tests {
             },
             8,
             4,
+            None,
         )
         .unwrap();
         assert!(stats.cancelled, "cancel must be reported");
@@ -376,6 +410,42 @@ mod tests {
             "cancelled {} should be < full {full}",
             stats.matches
         );
+        fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn cap_limits_emitted_hits_but_keeps_full_count() {
+        // `--max` must cap the returned hits and, once reached, stop paying the
+        // per-hit snippet cost — while the summary still reports every match and
+        // the full scanned size (B05: 131k hits, only 20 printed, ~49s before).
+        let data = b"AAxxAAxxAAxxAAxx";
+        let p = temp_log("cap", data);
+        let mut doc = DocFile::open(&p, 1 << 20).unwrap();
+        let mut hits = Vec::new();
+        let stats = search_stream_capped(
+            &mut doc,
+            &q("AA", Mode::Literal, EncodingLabel::Utf8, true),
+            Some(2),
+            |m| hits.push(m),
+            |_| true,
+        )
+        .unwrap();
+        assert_eq!(hits.len(), 2, "output stops at the cap");
+        assert_eq!(stats.matches, 4, "summary still counts every match");
+        assert_eq!(stats.scanned_bytes, data.len() as u64, "full scan completed");
+
+        // A zero cap is the same as `--max 0`: no snippets, full stats.
+        let mut none = Vec::new();
+        let stats = search_stream_capped(
+            &mut doc,
+            &q("AA", Mode::Literal, EncodingLabel::Utf8, true),
+            Some(0),
+            |m| none.push(m),
+            |_| true,
+        )
+        .unwrap();
+        assert!(none.is_empty());
+        assert_eq!(stats.matches, 4);
         fs::remove_file(&p).ok();
     }
 
@@ -467,6 +537,7 @@ mod tests {
             &mut |_| true,
             window,
             overlap,
+            None,
         )
         .unwrap();
         fs::remove_file(&p).ok();

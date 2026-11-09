@@ -178,6 +178,7 @@ impl IpcError {
                 ("conflict", Some(detail))
             }
             CoreError::Unmappable(n) => ("unmappable", Some(n.to_string())),
+            CoreError::PermissionDenied => ("permission_denied", None),
             CoreError::Locked => ("locked", None),
         };
         Self {
