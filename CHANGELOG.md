@@ -2,6 +2,16 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-09 — 工控入口收进标题栏下拉菜单（feat/ui-industrial-menu）
+
+**依据：** 用户反馈 LogLume 不只面向工控用户，报文/测量/解析不应平铺在标题栏。NoteLume 没有下拉菜单，形态按其浮层规范推导（`--bg` 底色、1px `--border`、`--r-md`、`--shadow-2`、26px 条目 + `--hover`、分隔线、右对齐 hint 位）。
+
+### Task. 通用动作留在标题栏，工控功能归入一个下拉
+**Files:** Modify `app/frontend/src/main.ts`（新增 `MenuRow`/`toggleAppMenu`/`closeAppMenu`/`industrialRows`：单个浮层菜单，`role=menu/menuitem`，↑↓/Home/End/Enter/Esc 键盘可达，点外部或窗口 resize 关闭，Esc 回焦触发器；标题栏改为 打开 / 查询 / 查看 / 脚本 / 工控菜单，删除 CAN 与 MF4 的独立图标按钮；脚本保留直连按钮，理由是通用逐行变换、非工控专属且高频；菜单末项「全部命令…」带 `Ctrl+Shift+P` hint 并调用 `openPalette`）；Modify `app/frontend/src/styles.css`（`--z-menu:60` 与新规则 `.app-menu/.menu-item/.menu-hint/.menu-sep`、触发器 `aria-expanded` 高亮）；Modify `app/frontend/index.html`（sprite 新增 `i-menu`）。
+**Why:** 标题栏只放跨场景能力（打开、查询、查看、脚本），工控三组（报文 / 测量 / 插件解析）收进一个图标菜单；菜单只是新增入口，`buildCommands()` 未改，命令面板原有全部命令仍在。菜单项内含子入口（BLF 打开、DBC 导入、CSV/JSONL 导出、重载插件），不再另起一行。
+**验证:** `npm test` 231 pass（30 文件）；`npm run build`（`tsc --noEmit` + vite）通过；实机 dev 实例待重启后确认菜单开合、键盘与点击外部行为。
+**未验:** 菜单在真实 Tauri 窗口里的定位/遮挡需重启后人工过；BLF/DBC/导出项点击依赖文件对话框，仅按原函数路径接入，未逐一实机点过。
+
 ## 2026-11-09 — 完全对齐 NoteLume 真实样式（feat/ui-notelume，第 2 版）
 
 **依据：** NoteLume 官方 master 归档。`git clone` 被 GitHub HTTP/2 传输中断两次（`RPC failed; curl 92` / `early EOF`），改用 `https://codeload.github.com/HackerSnail/NoteLume/zip/refs/heads/master` 下载（15,969,200 字节）解压到 `%TEMP%\NoteLume-fresh`；`src/style.css` SHA-256 `5D6189CE595E8D5305CDC25C697307334F153E7B218BDEE7621A2C99DF04FF38`，与此前阅读的副本逐字节一致，差异表数值均取自该文件行号与 `src/source-editor.js:36-59`。第一版是「参考后自创」，被否；本版逐项照搬真实值。

@@ -204,6 +204,7 @@
   --z-resizer: 4;
   --z-sticky: 6;
   --z-find: 30;
+  --z-menu: 60;
   --z-toast: 70;
   --z-modal: 80;
   --z-drag: 300;
@@ -486,6 +487,55 @@ html.has-custom-titlebar .win-btns {
 .win-btn.close:hover {
   background: var(--win-close);
   color: #fff;
+}
+/* Appbar dropdown: NoteLume has no dropdown, so derive it from its floating
+ * layers — --bg fill, 1px --border, --r-md, --shadow-2, 26px rows with
+ * --hover, 1px separators, and a right-aligned muted hint slot. */
+.appbar button[aria-expanded="true"] {
+  background: var(--hover);
+}
+.app-menu {
+  position: fixed;
+  z-index: var(--z-menu);
+  min-width: 232px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  box-shadow: var(--shadow-2);
+  animation: fade-up var(--dur-2) var(--ease-out);
+}
+.app-menu .menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: var(--h-control);
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--fg);
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+}
+.app-menu .menu-item:hover,
+.app-menu .menu-item:focus {
+  background: var(--hover);
+  outline: none;
+}
+.app-menu .menu-hint {
+  margin-left: auto;
+  padding-left: 16px;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.app-menu .menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
 }
 
 /* Workspace: sidebar | resizer | center | resizer | inspector, all in one row.

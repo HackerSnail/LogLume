@@ -299,18 +299,26 @@ function layout(): void {
   // live in tooltips/aria-labels so the bar stays a strip of 26px ghost icons.
   const primary = document.createElement("div");
   primary.className = "appbar-group";
+  // Industrial features (CAN / MF4 / plugin parsing) live behind one dropdown
+  // so the bar stays generic-only: open / query / view / script. The trigger
+  // stays icon-only like NoteLume's menubar, with the label in its tooltip.
+  const menuBtn = mkBtn("", "工控工具（报文 / 测量 / 解析）", () => toggleAppMenu(menuBtn, industrialRows()), "i-menu");
+  menuBtn.setAttribute("aria-haspopup", "menu");
+  menuBtn.setAttribute("aria-expanded", "false");
+  menuBtn.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!menuEl) toggleAppMenu(menuBtn, industrialRows());
+    }
+  });
   primary.append(
     mkBtn("", "打开文件（Ctrl+O）", () => void openFile(), "i-open"),
     mkBtn("", "行过滤 / 高亮命中", () => openQueryPanel(), "i-search"),
-    mkBtn("", "显示 / 隐藏 CAN 报文面板", () => toggleCanDock(), "i-table"),
-    mkBtn("", "打开 MF4 测量文件（表格浏览与导出）", () => void openMf4File(), "i-wave"),
-    mkBtn("", "查看 xlsx / docx 文档（表格与文本）", () => void openViewerFile(), "i-doc"),
-  );
-  const tools = document.createElement("div");
-  tools.className = "appbar-group";
-  tools.append(
+    mkBtn("", "查看 xlsx / docx / pdf 文档", () => void openViewerFile(), "i-doc"),
+    // Scripts are a general per-line transform, not an industrial tool, so they
+    // keep a direct button instead of a submenu (one extra hop for a daily use).
     mkBtn("", "打开脚本管理器（QuickJS 逐行变换）", () => openScriptManager(), "i-script"),
-    mkBtn("", "用解析插件把当前文档解析为表格（plugins 目录）", () => toggleParserDock(), "i-plug"),
+    menuBtn,
   );
   const toggles = document.createElement("div");
   toggles.className = "appbar-group";
@@ -319,7 +327,7 @@ function layout(): void {
     mkBtn("", "显示 / 隐藏文档信息栏", () => toggleInspector(), "i-info"),
     mkBtn("", "切换主题（浅色 / 暗黑 / 吸血鬼 / 跟随系统）", () => theme.cycle(), "i-theme"),
   );
-  bar.append(appName, primary, tools, toggles);
+  bar.append(appName, primary, toggles);
 
   const drag = document.createElement("div");
   drag.className = "titlebar-drag";
@@ -462,6 +470,147 @@ function mkWinBtn(
   b.setAttribute("aria-label", title);
   b.addEventListener("click", on);
   return b;
+}
+
+// ---- Appbar dropdown (industrial tools) -------------------------------------
+// NoteLume ships no dropdown of its own, so this is derived from its floating
+// layers: --bg fill, 1px --border, --r-md radius, --shadow-2, 26px item rows
+// with --hover, 1px --border separators, and a right-aligned muted hint slot.
+// Keyboard is explicit (↑/↓/Home/End/Enter/Esc) because it is not a <select>.
+
+type MenuRow = { label: string; hint?: string; run: () => void } | "sep";
+let menuEl: HTMLElement | null = null;
+let menuAnchor: HTMLButtonElement | null = null;
+
+/** The industrial groups: 报文 (CAN) → 测量 (MF4) → 插件解析. */
+function industrialRows(): MenuRow[] {
+  return [
+    {
+      label: canDockVisible ? "隐藏报文面板" : "报文面板（过滤 / 导出）",
+      run: () => toggleCanDock(),
+    },
+    { label: "打开 BLF…", run: () => void openBlfFile() },
+    { label: "导入 DBC…", run: () => void importDbc() },
+    { label: "解析当前文档为报文", run: () => void onCanRunClick() },
+    { label: "识别选中为报文", run: () => void decodeSelection() },
+    { label: "导出报文 CSV…", run: () => void onCanExport("csv") },
+    { label: "导出报文 JSONL…", run: () => void onCanExport("jsonl") },
+    "sep",
+    { label: "打开 MF4 测量文件…", run: () => void openMf4File() },
+    "sep",
+    {
+      label: parserDockVisible ? "隐藏解析面板" : "插件解析为表格…",
+      run: () => toggleParserDock(),
+    },
+    { label: "重载解析插件", run: () => void loadParserPlugins(true) },
+    "sep",
+    { label: "全部命令…", hint: "Ctrl+Shift+P", run: () => openPalette() },
+  ];
+}
+
+function closeAppMenu(refocus = false): void {
+  if (!menuEl) return;
+  menuEl.remove();
+  menuEl = null;
+  if (menuAnchor) {
+    menuAnchor.setAttribute("aria-expanded", "false");
+    if (refocus) menuAnchor.focus();
+    menuAnchor = null;
+  }
+  document.removeEventListener("mousedown", onMenuOutside, true);
+  window.removeEventListener("resize", onMenuDismiss);
+}
+
+function onMenuDismiss(): void {
+  closeAppMenu();
+}
+
+function onMenuOutside(e: MouseEvent): void {
+  const t = e.target as Node | null;
+  if (!t) return;
+  if (menuEl && !menuEl.contains(t) && !(menuAnchor && menuAnchor.contains(t))) {
+    closeAppMenu();
+  }
+}
+
+function toggleAppMenu(anchor: HTMLButtonElement, rows: MenuRow[]): void {
+  if (menuEl) {
+    const same = menuAnchor === anchor;
+    closeAppMenu();
+    if (same) return;
+  }
+  const menu = document.createElement("div");
+  menu.id = "app-menu";
+  menu.className = "app-menu";
+  menu.setAttribute("role", "menu");
+  menu.setAttribute("aria-label", "工控工具");
+  const items: HTMLButtonElement[] = [];
+  for (const row of rows) {
+    if (row === "sep") {
+      const s = document.createElement("div");
+      s.className = "menu-sep";
+      s.setAttribute("role", "separator");
+      menu.append(s);
+      continue;
+    }
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "menu-item";
+    b.setAttribute("role", "menuitem");
+    b.tabIndex = -1;
+    const label = document.createElement("span");
+    label.className = "menu-label";
+    label.textContent = row.label;
+    b.append(label);
+    if (row.hint) {
+      const hint = document.createElement("span");
+      hint.className = "menu-hint";
+      hint.textContent = row.hint;
+      b.append(hint);
+    }
+    b.addEventListener("click", () => {
+      closeAppMenu();
+      row.run();
+    });
+    items.push(b);
+    menu.append(b);
+  }
+  menu.addEventListener("keydown", (e) => {
+    const at = items.indexOf(document.activeElement as HTMLButtonElement);
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      closeAppMenu(true);
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      items[(at + 1) % items.length]?.focus();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      items[(at - 1 + items.length) % items.length]?.focus();
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      items[0]?.focus();
+    } else if (e.key === "End") {
+      e.preventDefault();
+      items[items.length - 1]?.focus();
+    } else if (e.key === "Tab") {
+      closeAppMenu();
+    }
+  });
+  menu.addEventListener("mousedown", (e) => e.preventDefault()); // keep focus on items
+
+  document.getElementById("app")?.append(menu);
+  const r = anchor.getBoundingClientRect();
+  const left = Math.min(Math.max(8, r.left), window.innerWidth - menu.offsetWidth - 8);
+  const top = Math.min(r.bottom + 4, window.innerHeight - menu.offsetHeight - 8);
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+  menuEl = menu;
+  menuAnchor = anchor;
+  anchor.setAttribute("aria-expanded", "true");
+  document.addEventListener("mousedown", onMenuOutside, true);
+  window.addEventListener("resize", onMenuDismiss);
+  items[0]?.focus();
 }
 
 /** Drive the frameless window; guarded so a plain-browser `vite dev` (no Tauri
@@ -4465,6 +4614,7 @@ function buildCommands(): Command[] {
 
 /** Ctrl+Shift+P palette: a fuzzy-filtered, keyboard-navigable command list. */
 function openPalette(): void {
+  closeAppMenu();
   openCommandList("输入命令…", buildCommands(), "palette");
 }
 
