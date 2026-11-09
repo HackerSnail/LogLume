@@ -12,8 +12,10 @@
 //!     k maps to `hits[k].line` (original number preserved in the gutter); text
 //!     fetched per visible window via `loadLines` (never the whole match set).
 //!
-//! This is a *view*, not an editor: `isDirty()` is always false, there is no
-//! cursor, and the only interaction is scroll + `scrollToLine`/`scrollToHit`.
+//! This is a *view*, not an editor: `isDirty()` is always false and there is no
+//! caret. Interaction is scroll + `scrollToLine`/`scrollToHit`, plus a minimal
+//! click / Shift+click row selection used by the AI "explain selected lines"
+//! scenario (`selectedLines()` returns original 0-based indices).
 
 import type { TabView } from "./tabs";
 import type { Cu16Range, IndexedText, LineHit } from "./ipc";
@@ -70,6 +72,14 @@ export function visibleWindow(
   const first = Math.max(0, Math.min(firstRaw, totalLines));
   const last = Math.max(first, Math.min(lastRaw, totalLines));
   return { first, last };
+}
+
+/** Normalize an anchor/head pair into an inclusive `[from, to]` range. */
+export function normalizeSelection(
+  anchor: number,
+  head: number,
+): { from: number; to: number } {
+  return { from: Math.min(anchor, head), to: Math.max(anchor, head) };
 }
 
 /** A styled text segment: `hl` → wrap in a highlight span when painting. */
@@ -139,6 +149,10 @@ export class ListView implements TabView {
   private hideNon = false;
   private hitMap: Map<number, Cu16Range[]> | null = null;
 
+  // ---- minimal row selection (AI explain scenario) ----
+  private selAnchor: number | null = null;
+  private selHead: number | null = null;
+
   constructor(opts: ListViewOpts) {
     this.opts = opts;
     this.docId = opts.docId;
@@ -165,7 +179,44 @@ export class ListView implements TabView {
     this.root.append(this.spacer);
 
     this.root.addEventListener("scroll", () => this.onScroll());
+    this.rows.addEventListener("mousedown", (e) => this.onRowMouseDown(e));
     this.refresh();
+  }
+
+  /** Current selected original-line range (inclusive, 0-based), or null. */
+  selectedLines(): { from: number; to: number } | null {
+    if (this.selAnchor === null) return null;
+    const head = this.selHead ?? this.selAnchor;
+    return normalizeSelection(this.selAnchor, head);
+  }
+
+  clearSelection(): void {
+    this.selAnchor = null;
+    this.selHead = null;
+    this.render(true);
+  }
+
+  private onRowMouseDown(e: MouseEvent): void {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement | null;
+    const row = target?.closest(".list-row") as HTMLElement | null;
+    const raw = row?.dataset.line;
+    if (raw === undefined) return;
+    const line = Number(raw);
+    if (!Number.isFinite(line)) return;
+    if (e.shiftKey && this.selAnchor !== null) {
+      e.preventDefault(); // keep the browser from painting a text selection
+      this.selHead = line;
+    } else {
+      this.selAnchor = line;
+      this.selHead = line;
+    }
+    this.render(true);
+  }
+
+  private inSelection(line: number): boolean {
+    const sel = this.selectedLines();
+    return sel !== null && line >= sel.from && line <= sel.to;
   }
 
   /** Number of slots in the current view (subset length, or full line count). */
@@ -431,6 +482,8 @@ export class ListView implements TabView {
       const row = document.createElement("div");
       row.className = "list-row";
       if (hit.line === this.flashIndex) row.className += " list-flash";
+      if (this.inSelection(hit.line)) row.className += " list-sel";
+      row.dataset.line = String(hit.line);
       row.style.position = "absolute";
       row.style.top = `${(k - first) * ROW_HEIGHT}px`;
       row.style.height = `${ROW_HEIGHT}px`;
@@ -456,6 +509,8 @@ export class ListView implements TabView {
       const row = document.createElement("div");
       row.className = "list-row";
       if (line === this.flashIndex) row.className += " list-flash";
+      if (this.inSelection(line)) row.className += " list-sel";
+      row.dataset.line = String(line);
       row.style.position = "absolute";
       row.style.top = `${(line - first) * ROW_HEIGHT}px`;
       row.style.height = `${ROW_HEIGHT}px`;

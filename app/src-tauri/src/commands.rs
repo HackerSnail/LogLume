@@ -561,7 +561,7 @@ pub fn watch_status(app: AppHandle) -> Result<WatchStatus, IpcError> {
 
 /// Read `config.toml`: a missing file is empty, but a real I/O error surfaces
 /// so callers never overwrite a config they could not read.
-fn read_config_text(app: &AppHandle) -> Result<String, IpcError> {
+pub(crate) fn read_config_text(app: &AppHandle) -> Result<String, IpcError> {
     let path = config_path(app)?;
     match std::fs::read_to_string(&path) {
         Ok(text) => Ok(text),
@@ -570,7 +570,7 @@ fn read_config_text(app: &AppHandle) -> Result<String, IpcError> {
     }
 }
 
-fn write_config_text(app: &AppHandle, text: &str) -> Result<(), IpcError> {
+pub(crate) fn write_config_text(app: &AppHandle, text: &str) -> Result<(), IpcError> {
     let path = config_path(app)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)

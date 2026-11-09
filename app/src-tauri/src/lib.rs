@@ -3,6 +3,7 @@
 //! pure-Rust crate, reused by the CLI in Task 7 and this shell). Streams that
 //! the front end consumes are delivered over `tauri::ipc::Channel`s.
 
+mod ai;
 mod can_export;
 mod commands;
 mod dto;
@@ -79,6 +80,12 @@ pub fn run() {
             commands::keymap_get,
             commands::keymap_set,
             commands::keymap_reset,
+            ai::ai_config_get,
+            ai::ai_config_set,
+            ai::ai_chat_stream,
+            ai::ai_chat_cancel,
+            ai::ai_models_list,
+            ai::ai_save_text,
             commands::mf4_open,
             commands::mf4_close,
             commands::mf4_channels,

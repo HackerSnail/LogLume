@@ -4,6 +4,7 @@
 //! the shell returns stable lowercase-snake codes, we map them to Chinese copy.
 
 import { invoke, Channel } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { CanFilter } from "./canfilter";
 
 /** Summary returned by `doc_open` (Rust `DocInfo`). */
@@ -187,6 +188,13 @@ export type IpcErrorCode =
   | "plugin_not_found"
   | "plugin_bad_manifest"
   | "viewer_unsupported"
+  | "ai_disabled"
+  | "ai_not_configured"
+  | "ai_bad_url"
+  | "ai_auth"
+  | "ai_rate_limited"
+  | "ai_http"
+  | "ai_network"
   | "git"
   | "git_dirty"
   | "git_unconfirmed"
@@ -231,6 +239,13 @@ const IPC_ERROR_ZH: Record<IpcErrorCode, string> = {
   plugin_not_found: "解析插件不存在（可能已被删除）%s",
   plugin_bad_manifest: "解析插件缺少必要定义%s",
   viewer_unsupported: "不支持的查看格式（支持 xlsx/xlsm/docx）%s",
+  ai_disabled: "AI 未启用，请先在设置中开启%s",
+  ai_not_configured: "AI 尚未配置完整%s",
+  ai_bad_url: "接口地址无效%s",
+  ai_auth: "AI 服务认证失败，请检查 API Key%s",
+  ai_rate_limited: "AI 服务限流或额度不足，请稍后再试%s",
+  ai_http: "AI 服务返回错误%s",
+  ai_network: "无法连接 AI 服务%s",
   git: "Git 操作失败%s",
   git_dirty: "工作区有未提交改动%s",
   git_unconfirmed: "需要确认才能丢弃文件改动%s",
@@ -1647,4 +1662,92 @@ export function csvRun(args: {
     onBatch: batchCh,
     onDone: doneCh,
   });
+}
+
+// ---- AI assist (OpenAI-compatible, opt-in) ------------------------------------
+
+/**
+ * AI settings as exposed to the front end. `hasKey` only — the key itself is
+ * held by the Rust shell and never crosses IPC back into the webview.
+ */
+export interface AiConfigView {
+  enabled: boolean;
+  baseUrl: string;
+  model: string;
+  temperature: number;
+  hasKey: boolean;
+  /** Loopback endpoint: the UI says "内容不出本机". */
+  local: boolean;
+}
+
+export function aiConfigGet(): Promise<AiConfigView> {
+  return call<AiConfigView>("ai_config_get", {});
+}
+
+/**
+ * Save settings. `apiKey: null` keeps the stored key, `""` clears it,
+ * a string replaces it. Disabled is the default until the user opts in.
+ */
+export function aiConfigSet(args: {
+  enabled: boolean;
+  baseUrl: string;
+  model: string;
+  apiKey?: string | null;
+  temperature?: number | null;
+}): Promise<AiConfigView> {
+  return call<AiConfigView>("ai_config_set", {
+    enabled: args.enabled,
+    baseUrl: args.baseUrl,
+    model: args.model,
+    apiKey: args.apiKey ?? null,
+    temperature: args.temperature ?? null,
+  });
+}
+
+/** One chat message. Roles are restricted by the Rust shell. */
+export interface AiMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+/** One `ll:ai-event` payload. `error` is terminal, like `done`. */
+export interface AiStreamEvent {
+  reqId: number;
+  kind: "chunk" | "reasoning" | "done" | "error";
+  delta?: string;
+  code?: string;
+  error?: string;
+}
+
+/** Start a streamed completion. Pre-flight errors reject; remote errors arrive as events. */
+export function aiChatStream(args: {
+  reqId: number;
+  messages: AiMessage[];
+  temperature?: number | null;
+}): Promise<void> {
+  return call<void>("ai_chat_stream", {
+    reqId: args.reqId,
+    messages: args.messages,
+    temperature: args.temperature ?? null,
+  });
+}
+
+/** Ask an in-flight stream to stop; false when the id is unknown. */
+export function aiChatCancel(reqId: number): Promise<boolean> {
+  return call<boolean>("ai_chat_cancel", { reqId });
+}
+
+/** `GET /models` using the saved (enabled) config, filtered to chat models. */
+export function aiModelsList(): Promise<string[]> {
+  return call<string[]>("ai_models_list", {});
+}
+
+/** Subscribe to streaming events; the caller unlistens on teardown. */
+export function listenAiEvents(cb: (ev: AiStreamEvent) => void): Promise<UnlistenFn> {
+  return listen<AiStreamEvent>("ll:ai-event", (e) => cb(e.payload));
+}
+
+/** Write an AI reply to a path chosen with the save dialog. */
+export function aiSaveText(path: string, text: string): Promise<void> {
+  return call<void>("ai_save_text", { path, text });
 }
