@@ -117,7 +117,7 @@ jobs:
           curl -sf -X POST "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases" \
             -d "access_token=${TOKEN}" \
             -d "tag_name=${TAG}" \
-            -d "name=LumeLog ${TAG}" \
+            -d "name=LogLume ${TAG}" \
             -d "body=M1 editor-core release: streaming large-file open, GBK/GB18030/UTF-16 encodings, literal/regex search."
           # A failed asset upload must fail the job, not print-and-pass. Process
           # substitution (not `find | while`) keeps the loop in the current shell

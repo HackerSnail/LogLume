@@ -114,5 +114,5 @@ pub fn run() {
             launch::launch_args,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running LumeLog");
+        .expect("error while running LogLume");
 }

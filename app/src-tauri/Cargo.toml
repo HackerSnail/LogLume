@@ -1,7 +1,7 @@
 [package]
 name = "lumelog-app"
 version = "0.1.0"
-description = "LumeLog desktop shell (Tauri v2) — thin IPC layer over lumelog-core"
+description = "LogLume desktop shell (Tauri v2) — thin IPC layer over lumelog-core"
 edition = "2021"
 rust-version = "1.89"
 

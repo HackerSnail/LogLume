@@ -291,7 +291,7 @@ function layout(): void {
   // right (buttons are only revealed when running under Tauri — see detectChrome).
   const appName = document.createElement("span");
   appName.className = "app-name";
-  appName.textContent = "LumeLog";
+  appName.textContent = "LogLume";
   bar.append(
     appName,
     mkBtn("打开文件", "", () => void openFile()),
