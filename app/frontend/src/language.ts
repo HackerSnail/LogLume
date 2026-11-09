@@ -103,7 +103,9 @@ export const AVAILABLE_MODES = [
   "json",
   "c",
   "javascript",
+  "jsx",
   "typescript",
+  "tsx",
   "python",
   "html",
   "css",
@@ -112,6 +114,22 @@ export const AVAILABLE_MODES = [
   "sql",
   "rust",
   "java",
+  "go",
+  "csharp",
+  "kotlin",
+  "scala",
+  "dart",
+  "objectivec",
+  "swift",
+  "ruby",
+  "lua",
+  "perl",
+  "haskell",
+  "erlang",
+  "r",
+  "clojure",
+  "protobuf",
+  "cmake",
   "yaml",
   "toml",
   "shell",
@@ -131,7 +149,9 @@ export const MODE_LABELS: Record<ModeChoice, string> = {
   json: "JSON",
   c: "C/C++",
   javascript: "JavaScript",
+  jsx: "JSX",
   typescript: "TypeScript",
+  tsx: "TSX",
   python: "Python",
   html: "HTML",
   css: "CSS",
@@ -140,6 +160,22 @@ export const MODE_LABELS: Record<ModeChoice, string> = {
   sql: "SQL",
   rust: "Rust",
   java: "Java",
+  go: "Go",
+  csharp: "C#",
+  kotlin: "Kotlin",
+  scala: "Scala",
+  dart: "Dart",
+  objectivec: "Objective-C",
+  swift: "Swift",
+  ruby: "Ruby",
+  lua: "Lua",
+  perl: "Perl",
+  haskell: "Haskell",
+  erlang: "Erlang",
+  r: "R",
+  clojure: "Clojure",
+  protobuf: "Protobuf",
+  cmake: "CMake",
   yaml: "YAML",
   toml: "TOML",
   shell: "Shell",
@@ -164,9 +200,9 @@ const EXT_MODES: Record<string, ModeChoice> = {
   js: "javascript",
   mjs: "javascript",
   cjs: "javascript",
-  jsx: "javascript",
+  jsx: "jsx",
   ts: "typescript",
-  tsx: "typescript",
+  tsx: "tsx",
   mts: "typescript",
   cts: "typescript",
   py: "python",
@@ -186,6 +222,35 @@ const EXT_MODES: Record<string, ModeChoice> = {
   sql: "sql",
   rs: "rust",
   java: "java",
+  go: "go",
+  cs: "csharp",
+  kt: "kotlin",
+  kts: "kotlin",
+  scala: "scala",
+  sc: "scala",
+  dart: "dart",
+  m: "objectivec",
+  mm: "objectivec",
+  swift: "swift",
+  rb: "ruby",
+  rake: "ruby",
+  gemspec: "ruby",
+  lua: "lua",
+  pl: "perl",
+  pm: "perl",
+  hs: "haskell",
+  lhs: "haskell",
+  erl: "erlang",
+  hrl: "erlang",
+  r: "r",
+  clj: "clojure",
+  cljs: "clojure",
+  cljc: "clojure",
+  edn: "clojure",
+  proto: "protobuf",
+  cmake: "cmake",
+  jsonc: "json",
+  json5: "json",
   yaml: "yaml",
   yml: "yaml",
   toml: "toml",
@@ -347,7 +412,15 @@ async function loadLanguage(mode: ModeChoice): Promise<LanguageSupport | null> {
       const { javascript } = await import("@codemirror/lang-javascript");
       return javascript();
     }
+    case "jsx": {
+      const { javascript } = await import("@codemirror/lang-javascript");
+      return javascript({ jsx: true });
+    }
     case "typescript": {
+      const { javascript } = await import("@codemirror/lang-javascript");
+      return javascript({ typescript: true });
+    }
+    case "tsx": {
       const { javascript } = await import("@codemirror/lang-javascript");
       return javascript({ typescript: true, jsx: true });
     }
@@ -383,6 +456,34 @@ async function loadLanguage(mode: ModeChoice): Promise<LanguageSupport | null> {
       const { java } = await import("@codemirror/lang-java");
       return java();
     }
+    case "go":
+      return streamMode(import("@codemirror/legacy-modes/mode/go"), "go");
+    case "csharp":
+    case "kotlin":
+    case "scala":
+    case "dart":
+    case "objectivec":
+      return clikeMode(mode);
+    case "swift":
+      return streamMode(import("@codemirror/legacy-modes/mode/swift"), "swift");
+    case "ruby":
+      return streamMode(import("@codemirror/legacy-modes/mode/ruby"), "ruby");
+    case "lua":
+      return streamMode(import("@codemirror/legacy-modes/mode/lua"), "lua");
+    case "perl":
+      return streamMode(import("@codemirror/legacy-modes/mode/perl"), "perl");
+    case "haskell":
+      return streamMode(import("@codemirror/legacy-modes/mode/haskell"), "haskell");
+    case "erlang":
+      return streamMode(import("@codemirror/legacy-modes/mode/erlang"), "erlang");
+    case "r":
+      return streamMode(import("@codemirror/legacy-modes/mode/r"), "r");
+    case "clojure":
+      return streamMode(import("@codemirror/legacy-modes/mode/clojure"), "clojure");
+    case "protobuf":
+      return streamMode(import("@codemirror/legacy-modes/mode/protobuf"), "protobuf");
+    case "cmake":
+      return streamMode(import("@codemirror/legacy-modes/mode/cmake"), "cmake");
     case "yaml":
       return streamMode(import("@codemirror/legacy-modes/mode/yaml"), "yaml");
     case "toml":
@@ -404,5 +505,21 @@ async function streamMode(
   exportName: string,
 ): Promise<LanguageSupport> {
   const spec = (await mod)[exportName] as StreamParser<unknown>;
+  return new LanguageSupport(StreamLanguage.define(spec));
+}
+/** Legacy `clike` packs several C-family dialects behind one module. */
+const CLIKE_EXPORTS: Partial<Record<ModeChoice, string>> = {
+  csharp: "csharp",
+  kotlin: "kotlin",
+  scala: "scala",
+  dart: "dart",
+  objectivec: "objectiveC",
+};
+
+async function clikeMode(mode: ModeChoice): Promise<LanguageSupport> {
+  const mod = await import("@codemirror/legacy-modes/mode/clike");
+  const spec = (mod as unknown as Record<string, StreamParser<unknown>>)[
+    CLIKE_EXPORTS[mode]!
+  ];
   return new LanguageSupport(StreamLanguage.define(spec));
 }

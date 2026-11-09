@@ -32,12 +32,12 @@ describe("modeIdForExt", () => {
       ["PY", "python"],
       ["pyw", "python"],
       ["ts", "typescript"],
-      ["tsx", "typescript"],
+      ["tsx", "tsx"],
       ["mts", "typescript"],
       ["cts", "typescript"],
       ["js", "javascript"],
       ["mjs", "javascript"],
-      ["jsx", "javascript"],
+      ["jsx", "jsx"],
       ["yml", "yaml"],
       ["yaml", "yaml"],
       ["toml", "toml"],
@@ -66,6 +66,30 @@ describe("modeIdForExt", () => {
       ["hpp", "c"],
       ["cxx", "c"],
       ["cc", "c"],
+      ["go", "go"],
+      ["cs", "csharp"],
+      ["kt", "kotlin"],
+      ["kts", "kotlin"],
+      ["scala", "scala"],
+      ["sc", "scala"],
+      ["dart", "dart"],
+      ["m", "objectivec"],
+      ["mm", "objectivec"],
+      ["swift", "swift"],
+      ["rb", "ruby"],
+      ["lua", "lua"],
+      ["pl", "perl"],
+      ["pm", "perl"],
+      ["hs", "haskell"],
+      ["erl", "erlang"],
+      ["hrl", "erlang"],
+      ["r", "r"],
+      ["clj", "clojure"],
+      ["cljs", "clojure"],
+      ["proto", "protobuf"],
+      ["cmake", "cmake"],
+      ["jsonc", "json"],
+      ["json5", "json"],
     ];
     for (const [ext, mode] of cases) expect(modeIdForExt(ext), ext).toBe(mode);
   });
@@ -102,6 +126,49 @@ describe("resolveLanguage", () => {
     const src = "interface Foo { a: number }";
     expect(hasError(ts!, src)).toBe(false);
     expect(hasError(js!, src)).toBe(true);
+  });
+
+  it("uses JSX/TSX dialects for .jsx/.tsx and plain TS for .ts", async () => {
+    const js = await resolveLanguage("javascript");
+    const jsx = await resolveLanguage("jsx");
+    const ts = await resolveLanguage("typescript");
+    const tsx = await resolveLanguage("tsx");
+
+    const jsxSrc = 'const x = <div className="a" />;';
+    expect(hasError(jsx!, jsxSrc)).toBe(false);
+    expect(hasError(js!, jsxSrc)).toBe(true);
+
+    const tsxSrc = "const x: JSX.Element = <div />;";
+    expect(hasError(tsx!, tsxSrc)).toBe(false);
+
+    const generic = "function id<T>(x: T): T { return x; }";
+    expect(hasError(ts!, generic)).toBe(false);
+  });
+
+  it("loads and parses samples in the added common languages", async () => {
+    const samples: Array<[ModeChoice, string]> = [
+      ["go", 'package main\nfunc main() { println("hi") }'],
+      ["csharp", "class A { static void Main() {} }"],
+      ["kotlin", 'fun main() { println("hi") }'],
+      ["scala", 'object A { def main(args: Array[String]) = println("hi") }'],
+      ["dart", "void main() { print('hi'); }"],
+      ["objectivec", "#import <Foundation/Foundation.h>\nint main() { return 0; }"],
+      ["swift", 'print("hi")'],
+      ["ruby", "def hi\n  puts 'hi'\nend"],
+      ["lua", "print('hi')"],
+      ["perl", 'print "hi\\n";'],
+      ["haskell", 'main = putStrLn "hi"'],
+      ["erlang", "-module(a).\n-export([f/0]).\nf() -> ok."],
+      ["r", "x <- c(1, 2)\nprint(x)"],
+      ["clojure", '(println "hi")'],
+      ["protobuf", 'syntax = "proto3";\nmessage A { int32 id = 1; }'],
+      ["cmake", "cmake_minimum_required(VERSION 3.20)\nproject(a)"],
+    ];
+    for (const [mode, src] of samples) {
+      const lang = await resolveLanguage(mode);
+      expect(lang, mode).toBeInstanceOf(LanguageSupport);
+      expect(() => lang!.language.parser.parse(src), mode).not.toThrow();
+    }
   });
 });
 
