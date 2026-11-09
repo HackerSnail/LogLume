@@ -31,6 +31,7 @@ import {
   gitPull,
   gitPush,
   gitRemoteAdd,
+  gitRemoteRemove,
   gitRemotes,
   gitRemoteSetUrl,
   gitRemoteStatus,
@@ -1029,12 +1030,47 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
         },
       ],
       confirmLabel: "保存",
+      danger: {
+        label: "移除这个远端…",
+        run: () => removeRemote(root, name),
+      },
       onSubmit: async (values) => {
         await gitRemoteSetUrl(root, name, values.url);
         hooks.toast(`已更新远端 ${name} 的地址`);
       },
     });
     if (done) await load();
+  }
+
+  /**
+   * Danger path of the edit dialog: a second prompt that spells out the blast
+   * radius and requires typing the exact remote name. Resolves true only after
+   * the backend dropped the remote, so the outer dialog closes and `load()`
+   * flips the sync block back to "未配置远端 / 添加远端".
+   */
+  async function removeRemote(root: string, name: string): Promise<boolean> {
+    const done = await promptDialog({
+      title: `移除远端 ${name}？`,
+      message:
+        `只移除本地配置，不会删除远端服务器上的仓库或分支，也不会发起网络请求。` +
+        `本地跟踪分支（如 ${name}/main）会一并移除，下次获取时重建。`,
+      fields: [
+        {
+          key: "confirm",
+          label: "输入远端名确认",
+          placeholder: name,
+          mono: true,
+          validate: (v) =>
+            v === name ? null : `请完整输入远端名 ${name}（区分大小写）`,
+        },
+      ],
+      confirmLabel: "移除远端",
+      onSubmit: async () => {
+        await gitRemoteRemove(root, name);
+        hooks.toast(`已移除远端 ${name}（仅本地配置）`);
+      },
+    });
+    return done !== null;
   }
 
   // ---- collapsible sections ----------------------------------------------

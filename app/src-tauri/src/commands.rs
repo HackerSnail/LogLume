@@ -2871,6 +2871,19 @@ pub async fn git_remote_set_url(
     .map_err(|e| IpcError::new("git", e.to_string()))?
 }
 
+/// Remove one remote from the local config (no network); returns the rest.
+#[tauri::command]
+pub async fn git_remote_remove(
+    root: String,
+    name: String,
+) -> Result<Vec<crate::gitinfo::GitRemoteInfo>, IpcError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::gitinfo::git_remote_remove(Path::new(&root), &name).map_err(git_err)
+    })
+    .await
+    .map_err(|e| IpcError::new("git", e.to_string()))?
+}
+
 /// Detached-HEAD checkout of a commit; the result message spells that out.
 #[tauri::command]
 pub fn git_checkout_commit(

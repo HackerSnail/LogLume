@@ -40,6 +40,7 @@ const branchCreate = vi.fn<
 const remotes = vi.fn<(root: string) => Promise<{ name: string; url: string }[]>>();
 const remoteAdd = vi.fn<(root: string, name: string, url: string) => Promise<void>>();
 const remoteSetUrl = vi.fn<(root: string, name: string, url: string) => Promise<void>>();
+const remoteRemove = vi.fn<(root: string, name: string) => Promise<{ name: string; url: string }[]>>();
 
 class FakeIpcError extends Error {
   zh: string;
@@ -78,6 +79,7 @@ vi.mock("./ipc", () => ({
   gitRemotes: (r: string) => remotes(r),
   gitRemoteAdd: (r: string, n: string, u: string) => remoteAdd(r, n, u),
   gitRemoteSetUrl: (r: string, n: string, u: string) => remoteSetUrl(r, n, u),
+  gitRemoteRemove: (r: string, n: string) => remoteRemove(r, n),
   IpcError: FakeIpcError,
 }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: (m: string, o?: unknown) => ask(m, o) }));
@@ -162,6 +164,7 @@ beforeEach(() => {
   remotes.mockResolvedValue([{ name: "origin", url: "https://example.com/a.git" }]);
   remoteAdd.mockResolvedValue(undefined);
   remoteSetUrl.mockResolvedValue(undefined);
+  remoteRemove.mockResolvedValue([]);
 });
 
 describe("Git panel parity", () => {
@@ -515,6 +518,129 @@ describe("Git panel parity", () => {
     expect(remoteSetUrl).toHaveBeenCalledWith("/repo/", "origin", "git@github.com:me/b.git");
     expect(toast).toHaveBeenCalledWith("已更新远端 origin 的地址");
     expect(document.querySelector(".prompt-box")).toBeNull();
+  });
+
+  it("removes the remote only after typing its name, then returns to the unconfigured sync block", async () => {
+    probe.mockResolvedValue(repoInfo());
+    status.mockResolvedValue([]);
+    log.mockResolvedValue([]);
+    remoteStatus.mockResolvedValueOnce({
+      has_remote: true,
+      remote: "origin",
+      url: "https://example.com/a.git",
+      branch: "main",
+      detached: false,
+      has_upstream: true,
+      upstream: "origin/main",
+      ahead: 0,
+      behind: 0,
+    });
+    remoteStatus.mockResolvedValue({
+      has_remote: false,
+      branch: "main",
+      detached: false,
+      has_upstream: false,
+      ahead: 0,
+      behind: 0,
+    });
+
+    const { box, toast } = mount();
+    await settle();
+    box.querySelector<HTMLElement>(".git-sync-target-btn")!.click();
+    await settle();
+
+    const edit = document.querySelector<HTMLElement>(".prompt-box")!;
+    const danger = edit.querySelector<HTMLButtonElement>(".prompt-danger-btn")!;
+    expect(danger.textContent).toBe("移除这个远端…");
+    // Danger sits in its own row, not inside the 保存/取消 row, and never owns focus.
+    expect(edit.querySelector(".prompt-row")?.contains(danger)).toBe(false);
+    expect(document.activeElement).toBe(edit.querySelector(".prompt-input"));
+
+    danger.click();
+    await settle();
+
+    const dialogs = document.querySelectorAll<HTMLElement>(".prompt-box");
+    expect(dialogs).toHaveLength(2);
+    const confirmDlg = dialogs[1];
+    expect(confirmDlg.querySelector(".prompt-title")?.textContent).toBe("移除远端 origin？");
+    expect(confirmDlg.querySelector(".prompt-msg")?.textContent).toContain(
+      "只移除本地配置，不会删除远端服务器上的仓库或分支",
+    );
+    const visibleErr = (): string =>
+      [...confirmDlg.querySelectorAll<HTMLElement>(".prompt-err")].find((n) => !n.hidden)?.textContent ??
+      "";
+    const input = confirmDlg.querySelector<HTMLInputElement>(".prompt-input")!;
+    const ok = confirmDlg.querySelector<HTMLButtonElement>(".prompt-btn.primary")!;
+
+    // A single click is not enough: the exact remote name has to be typed.
+    ok.click();
+    await settle();
+    expect(visibleErr()).toContain("请完整输入远端名 origin");
+    expect(remoteRemove).not.toHaveBeenCalled();
+
+    input.value = "origi";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    ok.click();
+    await settle();
+    expect(visibleErr()).toContain("请完整输入远端名 origin");
+    expect(remoteRemove).not.toHaveBeenCalled();
+
+    input.value = "origin";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    ok.click();
+    await settle();
+    await settle();
+
+    expect(remoteRemove).toHaveBeenCalledWith("/repo/", "origin");
+    expect(toast).toHaveBeenCalledWith("已移除远端 origin（仅本地配置）");
+    expect(document.querySelector(".prompt-box")).toBeNull();
+    // The reloaded sync block falls back to the "no remote" state.
+    expect(box.querySelector(".git-sync-target")?.textContent).toBe("未配置远端");
+    const add = [...box.querySelectorAll<HTMLButtonElement>(".git-sync-btn")].find((b) =>
+      b.textContent?.includes("添加远端"),
+    );
+    expect(add).toBeTruthy();
+  });
+
+  it("keeps the remote and shows the error when removal fails", async () => {
+    probe.mockResolvedValue(repoInfo());
+    status.mockResolvedValue([]);
+    log.mockResolvedValue([]);
+    remoteStatus.mockResolvedValue({
+      has_remote: true,
+      remote: "origin",
+      url: "https://example.com/a.git",
+      branch: "main",
+      detached: false,
+      has_upstream: true,
+      upstream: "origin/main",
+      ahead: 0,
+      behind: 0,
+    });
+    remoteRemove.mockRejectedValue(new FakeIpcError("移除远端失败：权限不足", "git"));
+
+    const { box } = mount();
+    await settle();
+    box.querySelector<HTMLElement>(".git-sync-target-btn")!.click();
+    await settle();
+    document.querySelector<HTMLButtonElement>(".prompt-danger-btn")!.click();
+    await settle();
+
+    const dialogs = document.querySelectorAll<HTMLElement>(".prompt-box");
+    const confirmDlg = dialogs[1];
+    const input = confirmDlg.querySelector<HTMLInputElement>(".prompt-input")!;
+    input.value = "origin";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    confirmDlg.querySelector<HTMLButtonElement>(".prompt-btn.primary")!.click();
+    await settle();
+
+    const formErr = confirmDlg.querySelector<HTMLElement>(".prompt-form-err")!;
+    expect(formErr.hidden).toBe(false);
+    expect(formErr.textContent).toBe("移除远端失败：权限不足");
+    expect(confirmDlg.querySelector<HTMLButtonElement>(".prompt-btn.primary")!.disabled).toBe(false);
+    // Nothing was reloaded or removed: the sync block still shows the remote.
+    expect(document.querySelectorAll(".prompt-box")).toHaveLength(2);
+    expect(box.querySelector(".git-sync-target")?.textContent).toBe("origin · main");
   });
 
   it("validates branch names, remote names and remote URLs", () => {

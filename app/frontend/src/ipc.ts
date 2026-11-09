@@ -1494,6 +1494,15 @@ export function gitRemoteSetUrl(root: string, name: string, url: string): Promis
   return call<void>("git_remote_set_url", { root, name, url });
 }
 
+/**
+ * Remove one remote from this repository's config only — no network request,
+ * the server-side repository and branches stay untouched. Resolves with the
+ * remaining remotes so the caller can refresh its state.
+ */
+export function gitRemoteRemove(root: string, name: string): Promise<GitRemoteInfo[]> {
+  return call<GitRemoteInfo[]>("git_remote_remove", { root, name });
+}
+
 /** Detached-HEAD checkout of a commit; the returned message says so. */
 export function gitCheckoutCommit(
   root: string,
