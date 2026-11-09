@@ -56,6 +56,8 @@ const NON_LOG_EXTENSIONS = new Set([
   "xml",
   "html",
   "htm",
+  "vue",
+  "svelte",
   "css",
   "scss",
   "sass",

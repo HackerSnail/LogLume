@@ -2,6 +2,13 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-09 — 引入社区语言包：PHP / Vue / Svelte / SCSS / Sass / Less
+
+**Files:** Modify `app/frontend/package.json` + `package-lock.json`（新增 `@codemirror/lang-php@6.0.2`、`@codemirror/lang-vue@0.1.3`、`@replit/codemirror-lang-svelte@6.0.0`、`@codemirror/lang-sass@6.0.2`、`@codemirror/lang-less@6.0.2`）；Modify `app/frontend/src/language.ts`（新增 php/vue/svelte/scss/sass/less 模式；PHP 以 HTML 为 base 语言，Sass 区分缩进语法）；Modify `app/frontend/src/language.test.ts`（扩展名映射 + 六种语言解析断言）；Modify `app/frontend/src/docKind.ts`（vue/svelte 同步为非日志）。
+**Why:** 上一条交付说明 PHP/Vue/Svelte 无现成包；用户要求引入社区包补齐常用前端/后端语言。
+**验证:** `npx tsc --noEmit` 通过；全量 `npx vitest run` 37 文件 / 287 tests 全绿；`npm ci --dry-run` 通过（lock 与 package.json 一致）。
+**环境备注:** 本机 npm 11 解析 `pdfjs-dist` 的 `@napi-rs/canvas` 可选依赖时仍报 `Invalid Version`；本次临时移除 pdfjs 的 `optionalDependencies`、清理 lock 中 canvas 条目后完成安装，再恢复 node_modules 内 pdfjs 元数据。CI（Node 20）应不受影响，`npm ci` 校验已通过。
+
 ## 2026-11-09 — 补齐常用语言高亮并修正 JSX/TSX 方言
 
 **Files:** Modify `app/frontend/src/language.ts`（新增 `jsx`/`tsx` 方言；补 Go、C#、Kotlin、Scala、Dart、Objective-C、Swift、Ruby、Lua、Perl、Haskell、Erlang、R、Clojure、Protobuf、CMake；扩展名映射同步；`clike` 用单模块多方言复用）；Modify `app/frontend/src/language.test.ts`（新增映射、JSX/TSX 与 `.ts` 泛型差异、16 种新语言解析冒烟）；Modify `app/frontend/src/statusbar.test.ts`（去掉硬编码下拉索引，按 value 断言）；Modify `app/frontend/src/docKind.ts`（同步新增语言扩展名为非日志，避免 AI 面板误判）。

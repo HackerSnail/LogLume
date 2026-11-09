@@ -107,8 +107,14 @@ export const AVAILABLE_MODES = [
   "typescript",
   "tsx",
   "python",
+  "php",
   "html",
+  "vue",
+  "svelte",
   "css",
+  "scss",
+  "sass",
+  "less",
   "xml",
   "markdown",
   "sql",
@@ -153,8 +159,14 @@ export const MODE_LABELS: Record<ModeChoice, string> = {
   typescript: "TypeScript",
   tsx: "TSX",
   python: "Python",
+  php: "PHP",
   html: "HTML",
+  vue: "Vue",
+  svelte: "Svelte",
   css: "CSS",
+  scss: "SCSS",
+  sass: "Sass",
+  less: "Less",
   xml: "XML",
   markdown: "Markdown",
   sql: "SQL",
@@ -208,9 +220,19 @@ const EXT_MODES: Record<string, ModeChoice> = {
   py: "python",
   pyw: "python",
   pyi: "python",
+  php: "php",
+  php3: "php",
+  php4: "php",
+  php5: "php",
+  phtml: "php",
   html: "html",
   htm: "html",
+  vue: "vue",
+  svelte: "svelte",
   css: "css",
+  scss: "scss",
+  sass: "sass",
+  less: "less",
   xml: "xml",
   xsd: "xml",
   xsl: "xml",
@@ -428,13 +450,40 @@ async function loadLanguage(mode: ModeChoice): Promise<LanguageSupport | null> {
       const { python } = await import("@codemirror/lang-python");
       return python();
     }
+    case "php": {
+      const [{ php }, { htmlLanguage }] = await Promise.all([
+        import("@codemirror/lang-php"),
+        import("@codemirror/lang-html"),
+      ]);
+      return php({ baseLanguage: htmlLanguage });
+    }
     case "html": {
       const { html } = await import("@codemirror/lang-html");
       return html();
     }
+    case "vue": {
+      const { vue } = await import("@codemirror/lang-vue");
+      return vue();
+    }
+    case "svelte": {
+      const { svelte } = await import("@replit/codemirror-lang-svelte");
+      return svelte();
+    }
     case "css": {
       const { css } = await import("@codemirror/lang-css");
       return css();
+    }
+    case "scss": {
+      const { sass } = await import("@codemirror/lang-sass");
+      return sass();
+    }
+    case "sass": {
+      const { sass } = await import("@codemirror/lang-sass");
+      return sass({ indented: true });
+    }
+    case "less": {
+      const { less } = await import("@codemirror/lang-less");
+      return less();
     }
     case "xml": {
       const { xml } = await import("@codemirror/lang-xml");

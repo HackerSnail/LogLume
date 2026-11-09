@@ -90,6 +90,14 @@ describe("modeIdForExt", () => {
       ["cmake", "cmake"],
       ["jsonc", "json"],
       ["json5", "json"],
+      ["php", "php"],
+      ["php5", "php"],
+      ["phtml", "php"],
+      ["vue", "vue"],
+      ["svelte", "svelte"],
+      ["scss", "scss"],
+      ["sass", "sass"],
+      ["less", "less"],
     ];
     for (const [ext, mode] of cases) expect(modeIdForExt(ext), ext).toBe(mode);
   });
@@ -163,11 +171,17 @@ describe("resolveLanguage", () => {
       ["clojure", '(println "hi")'],
       ["protobuf", 'syntax = "proto3";\nmessage A { int32 id = 1; }'],
       ["cmake", "cmake_minimum_required(VERSION 3.20)\nproject(a)"],
+      ["php", '<?php echo "hi"; ?>'],
+      ["vue", "<template><div>hi</div></template>"],
+      ["svelte", "<h1>Hello</h1>"],
+      ["scss", "$c: red;\n.a { color: $c; }"],
+      ["sass", ".a\n  color: red"],
+      ["less", "@c: red;\n.a { color: @c; }"],
     ];
     for (const [mode, src] of samples) {
       const lang = await resolveLanguage(mode);
       expect(lang, mode).toBeInstanceOf(LanguageSupport);
-      expect(() => lang!.language.parser.parse(src), mode).not.toThrow();
+      expect(hasError(lang!, src), mode).toBe(false);
     }
   });
 });
