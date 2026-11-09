@@ -440,6 +440,11 @@ html.has-custom-titlebar .win-btns {
   color: var(--text-2);
   cursor: default;
 }
+/* `.appbar button` (0,1,1) beats `.win-btn` (0,1,0), so restate the height at
+ * higher specificity — otherwise titlebar buttons silently inherit 28px. */
+.appbar .win-btn {
+  height: 32px;
+}
 .win-btn .ico {
   width: 14px;
   height: 14px;
