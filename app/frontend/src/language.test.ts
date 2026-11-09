@@ -5,7 +5,9 @@ import {
   AVAILABLE_MODES,
   MODE_LABELS,
   autoModeId,
+  autoModeIdForPath,
   modeIdForExt,
+  modeIdForFile,
   pluginModeId,
   registerPluginLanguages,
   resolveLanguage,
@@ -104,6 +106,40 @@ describe("modeIdForExt", () => {
       ["vh", "verilog"],
       ["vhd", "vhdl"],
       ["vhdl", "vhdl"],
+      ["graphql", "graphql"],
+      ["gql", "graphql"],
+      ["sol", "solidity"],
+      ["liquid", "liquid"],
+      ["wat", "wast"],
+      ["wast", "wast"],
+      ["dockerfile", "dockerfile"],
+      ["s", "gas"],
+      ["asm", "gas"],
+      ["ml", "ocaml"],
+      ["mli", "ocaml"],
+      ["fs", "fsharp"],
+      ["fsx", "fsharp"],
+      ["sml", "sml"],
+      ["coffee", "coffeescript"],
+      ["cr", "crystal"],
+      ["d", "d"],
+      ["elm", "elm"],
+      ["f", "fortran"],
+      ["f90", "fortran"],
+      ["groovy", "groovy"],
+      ["gradle", "groovy"],
+      ["jl", "julia"],
+      ["pas", "pascal"],
+      ["pp", "puppet"],
+      ["pug", "pug"],
+      ["scm", "scheme"],
+      ["tcl", "tcl"],
+      ["vb", "vb"],
+      ["vbs", "vb"],
+      ["tex", "latex"],
+      ["nginx", "nginx"],
+      ["webidl", "webidl"],
+      ["properties", "properties"],
     ];
     for (const [ext, mode] of cases) expect(modeIdForExt(ext), ext).toBe(mode);
   });
@@ -112,6 +148,26 @@ describe("modeIdForExt", () => {
     expect(modeIdForExt("txt")).toBeNull();
     expect(modeIdForExt("rsx")).toBeNull();
     expect(modeIdForExt("")).toBeNull();
+  });
+});
+
+describe("modeIdForFile / autoModeIdForPath", () => {
+  it("recognises extension-less file names", () => {
+    expect(modeIdForFile("C:\\repo\\Dockerfile")).toBe("dockerfile");
+    expect(modeIdForFile("/repo/Dockerfile.dev")).toBe("dockerfile");
+    expect(modeIdForFile("CMakeLists.txt")).toBe("cmake");
+    expect(modeIdForFile("nginx.conf")).toBe("nginx");
+    expect(modeIdForFile("Jenkinsfile")).toBe("groovy");
+    expect(modeIdForFile("Gemfile")).toBe("ruby");
+    expect(modeIdForFile("main.rs")).toBeNull();
+  });
+
+  it("prefers whole-file names, then the extension", () => {
+    expect(autoModeIdForPath("/repo/Dockerfile")).toBe("dockerfile");
+    expect(autoModeIdForPath("/repo/Dockerfile.dev")).toBe("dockerfile");
+    expect(autoModeIdForPath("C:\\repo\\src\\main.rs")).toBe("rust");
+    expect(autoModeIdForPath("CMakeLists.txt")).toBe("cmake");
+    expect(autoModeIdForPath("main.unknown")).toBeNull();
   });
 });
 
@@ -185,6 +241,33 @@ describe("resolveLanguage", () => {
       ["less", "@c: red;\n.a { color: @c; }"],
       ["verilog", "module top(input a, output b);\nassign b = a;\nendmodule"],
       ["vhdl", "entity top is\nend entity;\narchitecture rtl of top is\nbegin\nend architecture;"],
+      ["graphql", "query Foo { user { id name } }"],
+      ["solidity", "pragma solidity ^0.8.0;\ncontract A { uint x; }"],
+      ["liquid", "{% if user %}{{ user.name }}{% endif %}"],
+      ["angular", '<div *ngIf="ok">{{ value }}</div>'],
+      ["wast", '(module (func (export "f")))'],
+      ["dockerfile", "FROM alpine\nRUN echo hi"],
+      ["gas", "mov $1, %eax"],
+      ["ocaml", "let x = 1"],
+      ["fsharp", "let x = 1"],
+      ["sml", "val x = 1"],
+      ["coffeescript", "x = 1"],
+      ["crystal", 'puts "hi"'],
+      ["d", "void main() {}"],
+      ["elm", "module Main exposing (..)"],
+      ["fortran", "program hello\nend program"],
+      ["groovy", 'println "hi"'],
+      ["julia", 'println("hi")'],
+      ["pascal", "program Hello; begin end."],
+      ["puppet", 'node default { notify { "hi": } }'],
+      ["pug", "div Hello"],
+      ["scheme", '(display "hi")'],
+      ["tcl", 'puts "hi"'],
+      ["vb", "Module A\nEnd Module"],
+      ["latex", "\\documentclass{article}"],
+      ["nginx", "server { listen 80; }"],
+      ["webidl", "interface A { attribute long x; };"],
+      ["properties", "key=value"],
     ];
     for (const [mode, src] of samples) {
       const lang = await resolveLanguage(mode);

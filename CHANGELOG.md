@@ -2,6 +2,13 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-09 — 二次扩充语言覆盖：GraphQL / Solidity / Liquid / Angular / WASM + 20 余种 legacy 语言
+
+**Files:** Modify `app/frontend/package.json` + `package-lock.json`（新增 `cm6-graphql@1.0.0`、`@replit/codemirror-lang-solidity@6.0.2`、`@codemirror/lang-liquid@6.3.3`、`@codemirror/lang-angular@0.1.4`、`@codemirror/lang-wast@6.0.2`、`graphql@16.11.0`、`@codemirror/lint@^6.9.7`）；Modify `app/frontend/src/language.ts`（新增 GraphQL/Solidity/Liquid/Angular/WASM 与 Dockerfile/GNU Assembly/OCaml/F#/SML/CoffeeScript/Crystal/D/Elm/Fortran/Groovy/Julia/Pascal/Puppet/Pug/Scheme/Tcl/Visual Basic/LaTeX/Nginx/WebIDL/Properties；新增按文件名识别 Dockerfile/CMakeLists.txt/nginx.conf/Jenkinsfile/Gemfile/Rakefile/Vagrantfile）；Modify `app/frontend/src/editor.ts` + `main.ts`（AUTO 改为 `autoModeIdForPath`，传入完整路径）；Modify `app/frontend/src/language.test.ts`（映射、文件级识别、20+ 语言解析断言）；Modify `app/frontend/src/docKind.ts`（同步新增扩展名为非日志）。
+**Why:** 用户反馈「语言还是少了」；本轮按可用 legacy 模式与社区包做二次扩展，并补上无扩展名文件的识别。
+**验证:** `npx tsc --noEmit` 通过；全量 `npx vitest run` 37 文件 / 289 tests 全绿；`npm ci --dry-run` 通过。
+**仍缺:** Astro、HCL/Terraform、Zig 在 npm 上无可用 CM6 语言包（查询失败），暂不近似接入。
+
 ## 2026-11-09 — 补 Verilog / VHDL 高亮
 
 **Files:** Modify `app/frontend/src/language.ts`（新增 `verilog`/`vhdl` 模式；`.v/.sv/.svh/.vh` → Verilog，`.vhd/.vhdl` → VHDL）；Modify `app/frontend/src/language.test.ts`（扩展名映射与解析断言）；Modify `app/frontend/src/docKind.ts`（同步为非日志）。

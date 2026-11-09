@@ -127,7 +127,7 @@ import { type CanFilter } from "./canfilter";
 import { TabStrip } from "./tabs";
 import { Statusbar } from "./statusbar";
 import { extOf } from "./encoding-menu";
-import { autoModeId, registerPluginLanguages, syntaxModes, type ModeId } from "./language";
+import { autoModeIdForPath, registerPluginLanguages, syntaxModes, type ModeId } from "./language";
 import { initTheme } from "./theme";
 import { mountGitPanel } from "./gitpanel";
 import {
@@ -3716,6 +3716,7 @@ async function mountDoc(info: DocInfo, path: string): Promise<void> {
     parent: tabsEl,
     info,
     ext: extOf(path),
+    path,
     wrap: editorWrapOn,
     onDirty: () => tabs.refreshDirty(info.docId),
     // onDirty fires once per dirty cycle; every edit must re-arm the 2s timer.
@@ -3986,7 +3987,7 @@ function applyMode(docId: number, mode: string): void {
   if (!ds || !handle) return;
   // `mode` comes from the dropdown / caller as a plain string (builtin name or
   // `plugin:<id>`); only AUTO needs resolution against the doc's extension.
-  const resolved = (mode === "auto" ? autoModeId(extOf(ds.path)) : mode) as ModeId | null;
+  const resolved = (mode === "auto" ? autoModeIdForPath(ds.path) : mode) as ModeId | null;
   handle.setMode(resolved === "plain" ? null : resolved); // reconfigure language only
 }
 

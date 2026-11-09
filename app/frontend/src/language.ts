@@ -138,6 +138,33 @@ export const AVAILABLE_MODES = [
   "cmake",
   "verilog",
   "vhdl",
+  "graphql",
+  "solidity",
+  "liquid",
+  "angular",
+  "wast",
+  "dockerfile",
+  "gas",
+  "ocaml",
+  "fsharp",
+  "sml",
+  "coffeescript",
+  "crystal",
+  "d",
+  "elm",
+  "fortran",
+  "groovy",
+  "julia",
+  "pascal",
+  "puppet",
+  "pug",
+  "scheme",
+  "tcl",
+  "vb",
+  "latex",
+  "nginx",
+  "webidl",
+  "properties",
   "yaml",
   "toml",
   "shell",
@@ -192,6 +219,33 @@ export const MODE_LABELS: Record<ModeChoice, string> = {
   cmake: "CMake",
   verilog: "Verilog",
   vhdl: "VHDL",
+  graphql: "GraphQL",
+  solidity: "Solidity",
+  liquid: "Liquid",
+  angular: "Angular",
+  wast: "WebAssembly",
+  dockerfile: "Dockerfile",
+  gas: "GNU Assembly",
+  ocaml: "OCaml",
+  fsharp: "F#",
+  sml: "Standard ML",
+  coffeescript: "CoffeeScript",
+  crystal: "Crystal",
+  d: "D",
+  elm: "Elm",
+  fortran: "Fortran",
+  groovy: "Groovy",
+  julia: "Julia",
+  pascal: "Pascal",
+  puppet: "Puppet",
+  pug: "Pug",
+  scheme: "Scheme",
+  tcl: "Tcl",
+  vb: "Visual Basic",
+  latex: "LaTeX",
+  nginx: "Nginx",
+  webidl: "WebIDL",
+  properties: "Properties",
   yaml: "YAML",
   toml: "TOML",
   shell: "Shell",
@@ -281,6 +335,58 @@ const EXT_MODES: Record<string, ModeChoice> = {
   vh: "verilog",
   vhd: "vhdl",
   vhdl: "vhdl",
+  graphql: "graphql",
+  gql: "graphql",
+  graphqls: "graphql",
+  sol: "solidity",
+  liquid: "liquid",
+  wat: "wast",
+  wast: "wast",
+  dockerfile: "dockerfile",
+  s: "gas",
+  asm: "gas",
+  ml: "ocaml",
+  mli: "ocaml",
+  mll: "ocaml",
+  mly: "ocaml",
+  fs: "fsharp",
+  fsi: "fsharp",
+  fsx: "fsharp",
+  sml: "sml",
+  sig: "sml",
+  coffee: "coffeescript",
+  litcoffee: "coffeescript",
+  cr: "crystal",
+  d: "d",
+  elm: "elm",
+  f: "fortran",
+  for: "fortran",
+  f77: "fortran",
+  f90: "fortran",
+  f95: "fortran",
+  f03: "fortran",
+  f08: "fortran",
+  groovy: "groovy",
+  gradle: "groovy",
+  jl: "julia",
+  pas: "pascal",
+  dpr: "pascal",
+  lpr: "pascal",
+  pp: "puppet",
+  pug: "pug",
+  jade: "pug",
+  scm: "scheme",
+  ss: "scheme",
+  sls: "scheme",
+  tcl: "tcl",
+  vb: "vb",
+  vbs: "vb",
+  tex: "latex",
+  sty: "latex",
+  cls: "latex",
+  nginx: "nginx",
+  webidl: "webidl",
+  properties: "properties",
   jsonc: "json",
   json5: "json",
   yaml: "yaml",
@@ -304,6 +410,33 @@ const EXT_MODES: Record<string, ModeChoice> = {
 export function modeIdForExt(ext: string): ModeChoice | null {
   const e = (ext ?? "").trim().toLowerCase();
   return EXT_MODES[e] ?? null;
+}
+
+/** Whole-file names that do not carry a useful extension. */
+const FILE_MODES: Record<string, ModeChoice> = {
+  dockerfile: "dockerfile",
+  containerfile: "dockerfile",
+  "cmakelists.txt": "cmake",
+  "nginx.conf": "nginx",
+  jenkinsfile: "groovy",
+  gemfile: "ruby",
+  rakefile: "ruby",
+  vagrantfile: "ruby",
+};
+
+/** Extension-less files (`Dockerfile`, `CMakeLists.txt`, …) → mode id. */
+export function modeIdForFile(path: string): ModeChoice | null {
+  const base = (path.split(/[\\/]/).pop() ?? "").toLowerCase();
+  if (FILE_MODES[base]) return FILE_MODES[base];
+  if (base.startsWith("dockerfile.")) return "dockerfile";
+  return null;
+}
+
+function extOfPath(path: string): string {
+  const base = path.split(/[\\/]/).pop() ?? "";
+  const dot = base.lastIndexOf(".");
+  if (dot <= 0) return "";
+  return base.slice(dot + 1).toLowerCase();
 }
 
 /** `id -> "plugin:<id>"` — the mode id space never collides with built-ins. */
@@ -349,6 +482,14 @@ export function registerPluginLanguages(plugins: SyntaxPlugin[]): string[] {
  */
 export function autoModeId(ext: string): ModeId | null {
   return modeIdForExt(ext) ?? (pluginExts.get((ext ?? "").trim().toLowerCase()) as ModeId | undefined) ?? null;
+}
+
+/**
+ * AUTO for a full path: whole-file names win, then the extension (built-ins
+ * before plugin extensions).
+ */
+export function autoModeIdForPath(path: string): ModeId | null {
+  return modeIdForFile(path) ?? autoModeId(extOfPath(path));
 }
 
 /** Status-bar dropdown entries: built-ins first, then plugin modes. */
@@ -547,6 +688,70 @@ async function loadLanguage(mode: ModeChoice): Promise<LanguageSupport | null> {
       return streamMode(import("@codemirror/legacy-modes/mode/verilog"), "verilog");
     case "vhdl":
       return streamMode(import("@codemirror/legacy-modes/mode/vhdl"), "vhdl");
+    case "graphql": {
+      const { graphqlLanguageSupport } = await import("cm6-graphql");
+      return graphqlLanguageSupport();
+    }
+    case "solidity": {
+      const { solidity } = await import("@replit/codemirror-lang-solidity");
+      return solidity;
+    }
+    case "liquid": {
+      const { liquid } = await import("@codemirror/lang-liquid");
+      return liquid();
+    }
+    case "angular": {
+      const { angular } = await import("@codemirror/lang-angular");
+      return angular();
+    }
+    case "wast": {
+      const { wast } = await import("@codemirror/lang-wast");
+      return wast();
+    }
+    case "dockerfile":
+      return streamMode(import("@codemirror/legacy-modes/mode/dockerfile"), "dockerFile");
+    case "gas":
+      return streamMode(import("@codemirror/legacy-modes/mode/gas"), "gas");
+    case "ocaml":
+      return streamMode(import("@codemirror/legacy-modes/mode/mllike"), "oCaml");
+    case "fsharp":
+      return streamMode(import("@codemirror/legacy-modes/mode/mllike"), "fSharp");
+    case "sml":
+      return streamMode(import("@codemirror/legacy-modes/mode/mllike"), "sml");
+    case "coffeescript":
+      return streamMode(import("@codemirror/legacy-modes/mode/coffeescript"), "coffeeScript");
+    case "crystal":
+      return streamMode(import("@codemirror/legacy-modes/mode/crystal"), "crystal");
+    case "d":
+      return streamMode(import("@codemirror/legacy-modes/mode/d"), "d");
+    case "elm":
+      return streamMode(import("@codemirror/legacy-modes/mode/elm"), "elm");
+    case "fortran":
+      return streamMode(import("@codemirror/legacy-modes/mode/fortran"), "fortran");
+    case "groovy":
+      return streamMode(import("@codemirror/legacy-modes/mode/groovy"), "groovy");
+    case "julia":
+      return streamMode(import("@codemirror/legacy-modes/mode/julia"), "julia");
+    case "pascal":
+      return streamMode(import("@codemirror/legacy-modes/mode/pascal"), "pascal");
+    case "puppet":
+      return streamMode(import("@codemirror/legacy-modes/mode/puppet"), "puppet");
+    case "pug":
+      return streamMode(import("@codemirror/legacy-modes/mode/pug"), "pug");
+    case "scheme":
+      return streamMode(import("@codemirror/legacy-modes/mode/scheme"), "scheme");
+    case "tcl":
+      return streamMode(import("@codemirror/legacy-modes/mode/tcl"), "tcl");
+    case "vb":
+      return streamMode(import("@codemirror/legacy-modes/mode/vb"), "vb");
+    case "latex":
+      return streamMode(import("@codemirror/legacy-modes/mode/stex"), "stex");
+    case "nginx":
+      return streamMode(import("@codemirror/legacy-modes/mode/nginx"), "nginx");
+    case "webidl":
+      return streamMode(import("@codemirror/legacy-modes/mode/webidl"), "webIDL");
+    case "properties":
+      return streamMode(import("@codemirror/legacy-modes/mode/properties"), "properties");
     case "yaml":
       return streamMode(import("@codemirror/legacy-modes/mode/yaml"), "yaml");
     case "toml":
