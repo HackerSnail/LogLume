@@ -54,6 +54,8 @@ import {
   viewerExportCsv,
   recentList,
   recentClear,
+  aiConfigGet,
+  aiConfigSet,
 } from "./ipc";
 import { ENCODING_LABELS } from "./encoding-menu";
 
@@ -98,6 +100,32 @@ describe("ipc error → Chinese text (spec §9)", () => {
 
   it("unknown code falls back without throwing", () => {
     expect(ipcErrorZh("does_not_exist")).toBe("发生未知错误");
+  });
+});
+
+describe("AI assist ipc bridge (opt-in)", () => {
+  it("ai_error_codes_have_zh_text", () => {
+    const codes = [
+      "ai_disabled",
+      "ai_not_configured",
+      "ai_bad_url",
+      "ai_auth",
+      "ai_rate_limited",
+      "ai_http",
+      "ai_network",
+    ];
+    for (const code of codes) {
+      expect(IPC_ERROR_CODES).toContain(code);
+      expect(/[\u4e00-\u9fff]/.test(ipcErrorZh(code))).toBe(true);
+    }
+    // Disabled is explicit, not a silent no-op.
+    expect(ipcErrorZh("ai_disabled")).toContain("未启用");
+  });
+
+  it("ai_config_wrappers_are_functions", () => {
+    for (const fn of [aiConfigGet, aiConfigSet]) {
+      expect(typeof fn).toBe("function");
+    }
   });
 });
 

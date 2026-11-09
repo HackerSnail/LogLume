@@ -2,6 +2,33 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-09 — AI 助手移植（feat/ai-assist，未合 main）
+
+**依据：** NoteLume `src-tauri/src/ai.rs`（SSE 流）、`src/ai-settings.js`（按 host:port 明文存 key）、`src/ai-tasks.js`（提示词/上下文上限）、`src/ai-inline.js`（选区悬浮条）、`src/ai-panel.js`（对话/历史）。LogLume 按「设置与凭据 → 基础对话/流式 → 日志场景」三块落地；默认关闭，用户显式开启并填写接口后才联网。
+
+### Task 1. 设置与凭据
+**Files:** Add `app/src-tauri/src/ai.rs`（`read_ai_config`/`write_ai_config` 对 `config.toml` 的 `[ai]` 段字符串级读改写并保留其他段；`validate_config`：启用时 base_url 必须 http(s)、model 非空、温度 0–2；`is_loopback`；`AiConfigView` 只返回 `hasKey`，Key 永不回传前端；`ai_config_get`/`ai_config_set`，`api_key: None` 保持原值、`""` 清除）；Modify `app/src-tauri/src/commands.rs`（`read_config_text`/`write_config_text` 提为 `pub(crate)`）、`app/src-tauri/src/lib.rs`（注册）；Modify `app/frontend/src/ipc.ts`（`AiConfigView` + 错误码 `ai_disabled/ai_not_configured/ai_bad_url/ai_auth/ai_rate_limited/ai_http/ai_network` 及中文文案）；Add `app/frontend/src/aisettings.ts`（预设 DeepSeek/智谱/Kimi/OpenAI/Ollama；从关到开必须勾选「会向该地址发送选中的内容」；Key 只写不回显、单独「清除」；明文存储提示）；Modify `index.html`（`i-spark`）、`styles.css`、`main.ts`（顶栏入口、命令面板、`initAiConfig`）。
+**边界:** 不硬编码任何 Key，Key 只在 Rust 侧拼 `Authorization: Bearer`；默认 `enabled=false`；未启用/未配置时所有出网命令返回 `[ai_disabled]` / `[ai_not_configured]`，前端显示引导卡而非静默失败。凭据与 NoteLume 一样是本机明文（无系统钥匙串），弹层内明确写出「以明文写入 config.toml」。
+
+### Task 2. 对话 / 流式
+**Files:** Modify `app/src-tauri/src/ai.rs`（`ai_chat_stream`：POST `/chat/completions`、`stream:true`，按行解析 `data:`、`[DONE]`、`delta.content`、`reasoning_content`；预检错误直接 reject，远端错误以 `kind:"error"` 事件返回；`ai_chat_cancel(req_id)` 用 `AtomicBool` 置位；`ai_models_list` 拉 `/models` 并过滤非对话模型；`ai_save_text` 上限 2MB；连接 10s / 总计 300s）；Modify `lib.rs`（注册）；Modify `app/frontend/src/ipc.ts`（`aiChatStream/aiChatCancel/aiModelsList/listenAiEvents/aiSaveText`）；Add `app/frontend/src/aipanel.ts`（AI 对话面板：未启用引导、发送前显示「将发送：N 行 → host」、增量渲染、`<details>` 推理、停止、复制、另存 `.md`、内存历史；Task 4 收成 inspector 内的单一区块）；Modify `styles.css`、`main.ts`。
+
+### Task 3. 日志场景
+**Files:** Add `app/frontend/src/aitasks.ts`（解释选中行 / 归纳错误模式 / 按查询条件总结；上限 200 行、40k 字符；system prompt 要求只依据给定行、引用 L 行号、区分事实与推测）；Modify `app/frontend/src/listview.ts`（点击 / Shift+点击行选择、`normalizeSelection`）；Modify `app/frontend/src/main.ts`（`lastQuery` 记录已应用查询；三套上下文构建；`runAiScenario`；命令面板三条命令；补 `AiPanelDeps.runScenario`）；Modify `app/frontend/src/aipanel.ts`（场景动作与 `isBusy`；Task 4 中三个按钮改为 composer 的模式选择）；Modify `styles.css`（`.ai-scenes`、`.list-sel`）。
+**边界:** 解释只带选区 ±3 行；错误扫描复用 `search_run` 正则，收满 200 条唯一行即取消，并在提示词里写明「扫描在样例上限处停止，实际更多」；查询总结只取已应用查询的前 200 条命中并标注截断；无选区 / 无查询 / 文档未就绪 / AI 回复中 都先 toast 说明，不发起请求。
+
+**验证:** `cargo test --workspace` 全绿（app lib 182 passed，含 ai 模块配置读写/校验、SSE 解析、以及 4 例本机真实 socket 流式：增量 + `[DONE]`、401→`ai_auth`、429→`ai_rate_limited`、停止后不再渲染第二个增量）；`cargo check --workspace` 通过；`npm test` 268 passed / 34 文件（`aipanel.test.ts` 5 例：默认关闭引导、出机提示、增量渲染、错误码展示、停止调用 `ai_chat_cancel`；`aitasks.test.ts` 10 例，含 200 行扫描截断标注）；`npm run build`（`tsc --noEmit` + vite）通过。
+**未做 / 未验:** 没有可用 Key，**未接真实服务商**，联网路径只对本机 mock SSE 验证（TLS 与各家实际返回未覆盖）；未做 NoteLume 的选区悬浮改写条、Agent 工具调用、多会话存档、图片输入、Ollama 拉取模型；未在真实窗口做完整点击走查（本轮仅类型检查 + jsdom + Rust socket 测试），顶栏/面板的实际观感需要在有 Key 时手动确认；历史只在内存，关闭应用即丢；429 只提示，不自动重试/退避；没有多 provider 切换，切换靠手动改 base_url/model 与预设。
+**分支:** `feat/ai-assist`，未合 main。
+
+### Task 4. 单一面板形态（对齐 NoteLume inspector 中的 AI 区块）
+**Files:** Modify `app/frontend/src/aipanel.ts`（去掉独立 dock / 三个场景按钮；改为 `section.ai-panel`：标题行「✦ AI + 状态徽标 + 新对话 + 设置 + 折叠箭头」、对话流、底部 compose 卡片（textarea + `select.ai-mode`（对话/解释选中行/归纳错误模式/总结查询结果）+ 模型名 + 停止 + 发送）；`history` 只存 user/assistant，system 每轮按场景注入，切场景不清空；`runScenario(ctx)` 把场景输入作为该轮 user 消息渲染；`reportBlocked` 在对话流内显示本地失败原因）；Modify `app/frontend/src/main.ts`（AI 挂到既有 inspector、`showAiPanel`/`toggleAiPanel` 复用 inspector 的折叠与宽度；上下文构建失败改用 `BlockedReason` 抛到面板内；命令面板保留「打开/聚焦 + 三个场景 + 设置」）；Modify `app/frontend/src/styles.css`（`.insp-body` 自然高度且最多 50%，AI 占剩余；`.ai-compose` 卡片、`.ai-head/.ai-fold/.ai-icon/.ai-bar`；复用既有 token，无新颜色）；Modify `app/frontend/src/aipanel.test.ts`（重写为 8 例：默认关闭、面板内提示、纯对话、切场景保留历史且 system/上下文顺序正确、模式选择、已启用时阻塞提示、停止、折叠）。
+**与 NoteLume 一致:** AI 是 inspector 的底部区块，宽度/折叠跟随 inspector；只有一个会话流，三个日志动作是 composer 的模式；空状态与输入卡片层级同截图。
+**有意不同:** 顶部多一个「未启用」徽标与面板内状态行（凭据/联网状态必须显式）；空状态保留「前往 AI 设置…」按钮；模式用原生 select 而非自绘菜单；场景输入完整展开为 user 气泡（NoteLume 的 ask 只发摘要）。
+**验证:** `npm test` 271 passed / 34 文件（`aipanel.test.ts` 8 例全过）；`npm run build` 通过；真实窗口截图确认 inspector 底部面板完整（标题行/空状态/compose/发送圆钮，停止按钮空闲时隐藏）；修复 `.ai-stop[hidden]` 被 `display:grid` 覆盖的问题。
+**未做:** 未打开真实服务的完整点击走查（无 Key）；未做 NoteLume 的 ask 菜单快捷键与流内「插入回文档」；历史仍只在内存。
+**分支:** `feat/ai-assist`，未合 main。
+
 ## 2026-11-09 — 删除远端（feat/git-remote-remove）
 
 **依据：** 用户要求把删除远端做成编辑弹层里的独立危险操作，不放在同步行上；确认文案必须说清“只移除本地配置，不删服务器仓库/分支”，并要求输入远端名二次确认。
