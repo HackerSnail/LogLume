@@ -2,6 +2,12 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-09 — 补 Graphviz DOT 高亮（社区包 @viz-js/lang-dot）
+
+**Files:** Modify `app/frontend/package.json` + `package-lock.json`（新增 `@viz-js/lang-dot@1.0.5`）；Modify `app/frontend/src/language.ts`（新增 `dot` 模式，`.dot/.gv` 自动识别）；Modify `app/frontend/src/language.test.ts`（映射与 `digraph` 解析断言）；Modify `app/frontend/src/docKind.ts`（dot/gv 同步为非日志）。
+**Why:** 用户点名 Graphviz DOT 这类小众语言；此前 `.dot/.gv` 会静默回落 PlainText。
+**验证:** `npx tsc --noEmit` 通过；全量 `npx vitest run` 37 文件 / 289 tests 全绿；`npm ci --dry-run` 通过。
+
 ## 2026-11-09 — 二次扩充语言覆盖：GraphQL / Solidity / Liquid / Angular / WASM + 20 余种 legacy 语言
 
 **Files:** Modify `app/frontend/package.json` + `package-lock.json`（新增 `cm6-graphql@1.0.0`、`@replit/codemirror-lang-solidity@6.0.2`、`@codemirror/lang-liquid@6.3.3`、`@codemirror/lang-angular@0.1.4`、`@codemirror/lang-wast@6.0.2`、`graphql@16.11.0`、`@codemirror/lint@^6.9.7`）；Modify `app/frontend/src/language.ts`（新增 GraphQL/Solidity/Liquid/Angular/WASM 与 Dockerfile/GNU Assembly/OCaml/F#/SML/CoffeeScript/Crystal/D/Elm/Fortran/Groovy/Julia/Pascal/Puppet/Pug/Scheme/Tcl/Visual Basic/LaTeX/Nginx/WebIDL/Properties；新增按文件名识别 Dockerfile/CMakeLists.txt/nginx.conf/Jenkinsfile/Gemfile/Rakefile/Vagrantfile）；Modify `app/frontend/src/editor.ts` + `main.ts`（AUTO 改为 `autoModeIdForPath`，传入完整路径）；Modify `app/frontend/src/language.test.ts`（映射、文件级识别、20+ 语言解析断言）；Modify `app/frontend/src/docKind.ts`（同步新增扩展名为非日志）。

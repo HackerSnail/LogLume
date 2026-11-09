@@ -140,6 +140,7 @@ export const AVAILABLE_MODES = [
   "vhdl",
   "graphql",
   "solidity",
+  "dot",
   "liquid",
   "angular",
   "wast",
@@ -221,6 +222,7 @@ export const MODE_LABELS: Record<ModeChoice, string> = {
   vhdl: "VHDL",
   graphql: "GraphQL",
   solidity: "Solidity",
+  dot: "Graphviz DOT",
   liquid: "Liquid",
   angular: "Angular",
   wast: "WebAssembly",
@@ -339,6 +341,8 @@ const EXT_MODES: Record<string, ModeChoice> = {
   gql: "graphql",
   graphqls: "graphql",
   sol: "solidity",
+  dot: "dot",
+  gv: "dot",
   liquid: "liquid",
   wat: "wast",
   wast: "wast",
@@ -695,6 +699,10 @@ async function loadLanguage(mode: ModeChoice): Promise<LanguageSupport | null> {
     case "solidity": {
       const { solidity } = await import("@replit/codemirror-lang-solidity");
       return solidity;
+    }
+    case "dot": {
+      const { dot } = await import("@viz-js/lang-dot");
+      return dot();
     }
     case "liquid": {
       const { liquid } = await import("@codemirror/lang-liquid");
