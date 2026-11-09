@@ -2,6 +2,12 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-09 — 修复 gitpanel 测试在 Node 26 下的 localStorage 缺失
+
+**Files:** Modify `app/frontend/src/gitpanel.test.ts`（为测试注入内存版 `localStorage`：`Map` 实现 `Storage` 接口，经 `Object.defineProperty(globalThis, "localStorage", ...)` 安装，`beforeEach` 的 `localStorage.clear()` 恢复可用）。
+**Why:** Node 26 在未传 `--localstorage-file` 时全局 `localStorage` 为 undefined，且 vitest 的 jsdom 不透明源下 jsdom 自带的 `Storage` 会抛错；上一提交的全量测试唯一失败即 gitpanel 12 例，全部卡在 `beforeEach` 的 `localStorage.clear()`。该失败与右键菜单无关，但会掩盖真实回归。
+**验证:** `npx vitest run src/gitpanel.test.ts` 12 passed；全量 `npm test` 36 文件 / 281 tests 全绿；`npx tsc --noEmit` 通过。
+
 ## 2026-11-09 — 全覆盖右键菜单（对齐 NoteLume）+ 合入 AI 自定义模型
 
 **依据：** 用户要求「所有右键参考 NoteLume 重绘，AI 要能自定义模型」。NoteLume 右键体系见 `src/main.js` 的 `placeMenu`/`makeMenuItem`/`showTreeMenu`/`attachEditorContextMenu`/`openEditContextMenu`/`openTabContextMenu`/`installGlobalContextMenu`，视觉见 `src/style.css` 的 `.cv-menu/.tree-menu/.cv-menu-item/.cv-menu-sep`。开工前先把已完成的 `origin/feat/ai-custom-model`（96cf458）fast-forward 合入 main，保留其「自定义」预设、手动填写模型与地址/模型分字段校验。
