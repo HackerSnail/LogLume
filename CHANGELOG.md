@@ -2,6 +2,12 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-09 — 补 Godot 场景/资源高亮（.tscn / .tres / .godot）
+
+**Files:** Modify `app/frontend/src/language.ts`（新增 `godot` 模式：`[gd_scene]`/`[node]`/`[resource]` 等 section、键值、`ExtResource/SubResource`、`Vector2/Color/Transform2D` 等值类型、字符串/数字/布尔/注释；`.tscn/.tres/.godot` 自动识别）；Modify `app/frontend/src/language.test.ts`（映射与 `.tscn` 示例）；Modify `app/frontend/src/docKind.ts`（tscn/tres/godot 同步为非日志）。
+**Why:** 用户要求补 Godot 场景/资源文件；它们是 Godot 自定义文本格式，GDScript 模式不能覆盖。
+**验证:** `npx tsc --noEmit` 通过；全量 `npx vitest run` 37 文件 / 289 tests 全绿；`npm ci --dry-run` 通过。
+
 ## 2026-11-09 — 补 GDScript（Godot）高亮
 
 **Files:** Modify `app/frontend/src/language.ts`（新增 `gdscript` 模式：基于 `simpleMode` 实现关键字、内置类型/函数、注解、`$NodePath`、`%Unique`、单/双/三引号字符串、数字、注释；`.gd/.gdscript` 自动识别）；Modify `app/frontend/src/language.test.ts`（映射与 GDScript 示例）；Modify `app/frontend/src/docKind.ts`（gd/gdscript 同步为非日志）。

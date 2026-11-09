@@ -142,6 +142,7 @@ export const AVAILABLE_MODES = [
   "solidity",
   "dot",
   "gdscript",
+  "godot",
   "liquid",
   "angular",
   "wast",
@@ -225,6 +226,7 @@ export const MODE_LABELS: Record<ModeChoice, string> = {
   solidity: "Solidity",
   dot: "Graphviz DOT",
   gdscript: "GDScript",
+  godot: "Godot Resource",
   liquid: "Liquid",
   angular: "Angular",
   wast: "WebAssembly",
@@ -347,6 +349,9 @@ const EXT_MODES: Record<string, ModeChoice> = {
   gv: "dot",
   gd: "gdscript",
   gdscript: "gdscript",
+  tscn: "godot",
+  tres: "godot",
+  godot: "godot",
   liquid: "liquid",
   wat: "wast",
   wast: "wast",
@@ -820,6 +825,35 @@ async function loadLanguage(mode: ModeChoice): Promise<LanguageSupport | null> {
       return streamMode(import("@codemirror/legacy-modes/mode/webidl"), "webIDL");
     case "properties":
       return streamMode(import("@codemirror/legacy-modes/mode/properties"), "properties");
+    case "godot": {
+      const { simpleMode } = await import("@codemirror/legacy-modes/mode/simple-mode");
+      const types =
+        "Vector2|Vector2i|Vector3|Vector3i|Vector4|Vector4i|Color|Rect2|Rect2i|Transform2D|Transform3D|Basis|Quaternion|AABB|Plane|NodePath|PackedVector2Array|PackedVector3Array|PackedColorArray|PackedByteArray|PackedInt32Array|PackedInt64Array|PackedFloat32Array|PackedFloat64Array|PackedStringArray";
+      return new LanguageSupport(
+        StreamLanguage.define(
+          simpleMode({
+            start: [
+              { regex: /[;#][^\n]*/, token: "comment" },
+              { regex: /\[[A-Za-z_]\w*/, token: "className" },
+              { regex: /[A-Za-z_][\w/]*(?=\s*=)/, token: "propertyName" },
+              { regex: /[&^]?"/, token: "string", push: "double" },
+              { regex: /\b(?:true|false|null)\b/, token: "atom" },
+              { regex: new RegExp(`\\b(?:${types})\\b`), token: "typeName" },
+              { regex: /\b(?:ExtResource|SubResource)\b/, token: "variableName" },
+              { regex: /-?\d[\d_]*(?:\.[\d_]*)?(?:[eE][+-]?\d+)?/, token: "number" },
+              { regex: /[{}()[\]]/, token: "punctuation" },
+              { regex: /[=,:]/, token: "operator" },
+              { regex: /\b[A-Za-z_]\w*/, token: null },
+            ],
+            double: [
+              { regex: /[^"\\]+/, token: "string" },
+              { regex: /\\./, token: "string" },
+              { regex: /"/, token: "string", pop: true },
+            ],
+          }),
+        ),
+      );
+    }
     case "yaml":
       return streamMode(import("@codemirror/legacy-modes/mode/yaml"), "yaml");
     case "toml":
