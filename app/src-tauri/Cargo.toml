@@ -34,6 +34,12 @@ git2 = "0.20"
 # Single-instance (Plan 43): second launch forwards argv to the first.
 tauri-plugin-single-instance = "2"
 
+# macOS-only: strip the English AutoFill / Dictation / Emoji items AppKit
+# injects into the Edit menu (see menu.rs).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSMenu", "NSMenuItem"] }
+
 [dev-dependencies]
 rust_xlsxwriter = "0.102.0"
 tempfile = "3"

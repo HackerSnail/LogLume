@@ -9,6 +9,8 @@ mod dto;
 mod gitinfo;
 mod keymap;
 mod launch;
+// Native macOS application menu (items forward `menu:` ids to the front end).
+mod menu;
 mod mf4;
 mod plugins;
 mod recent;
@@ -23,6 +25,28 @@ mod watch;
 pub fn run() {
     launch::collect();
     tauri::Builder::default()
+        .menu(|app| menu::build(app))
+        .on_menu_event(|app, event| {
+            use tauri::Emitter;
+            let id = event.id().0.as_str();
+            if id.starts_with("menu:") {
+                let _ = app.emit("menu://action", id);
+            }
+        })
+        .setup(|app| {
+            // AppKit appends English AutoFill / Dictation / Emoji items to the
+            // Edit menu once the menu is installed; strip them after the run
+            // loop is up (needs the main thread, so hop back from a timer).
+            #[cfg(target_os = "macos")]
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(600));
+                    let _ = handle.run_on_main_thread(menu::strip_system_edit_items);
+                });
+            }
+            Ok(())
+        })
         // Single-instance MUST be the first plugin (its callback fires before
         // any window exists): forward the second launch's file args and focus.
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {

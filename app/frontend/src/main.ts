@@ -5,6 +5,7 @@
 //! scroll) is the Task 11 pass; the logic below is headless-checked by
 //! `tsc --noEmit` (strict) + `vitest`.
 
+import { redo as cmRedo, selectAll as cmSelectAll, undo as cmUndo } from "@codemirror/commands";
 import { open, save, ask } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
@@ -295,6 +296,8 @@ function layout(): void {
   // Toolbar hierarchy: NoteLume's Windows bar is app name + icon-only category
   // buttons + spacer + window controls, with no dividers between groups. Labels
   // live in tooltips/aria-labels so the bar stays a strip of 26px ghost icons.
+  // macOS: the native application menu (menu.rs) already covers every action
+  // below, so the bar degrades to app name + drag region + window buttons.
   const primary = document.createElement("div");
   primary.className = "appbar-group";
   // Industrial features (CAN / MF4 / plugin parsing) live behind one dropdown
@@ -325,20 +328,30 @@ function layout(): void {
     mkBtn("", "显示 / 隐藏文档信息栏", () => toggleInspector(), "i-info"),
     mkBtn("", "切换主题（浅色 / 暗黑 / 吸血鬼 / 跟随系统）", () => theme.cycle(), "i-theme"),
   );
-  bar.append(appName, primary, toggles);
+  if (isMacTauri()) {
+    bar.append(appName);
+  } else {
+    bar.append(appName, primary, toggles);
+  }
 
   const drag = document.createElement("div");
   drag.className = "titlebar-drag";
   drag.setAttribute("data-tauri-drag-region", "");
 
-  const winBtns = document.createElement("div");
-  winBtns.className = "win-btns";
-  winBtns.append(
-    mkWinBtn("i-win-min", "最小化", () => winAction("min")),
-    mkWinBtn("i-win-max", "最大化 / 还原", () => winAction("max")),
-    mkWinBtn("i-win-close", "关闭", () => winAction("close"), "close"),
-  );
-  bar.append(drag, winBtns);
+  // Windows-style controls only on the frameless Windows/Linux shells; macOS
+  // keeps the native traffic lights (tauri.macos.conf.json: Overlay titlebar).
+  if (isMacTauri()) {
+    bar.append(drag);
+  } else {
+    const winBtns = document.createElement("div");
+    winBtns.className = "win-btns";
+    winBtns.append(
+      mkWinBtn("i-win-min", "最小化", () => winAction("min")),
+      mkWinBtn("i-win-max", "最大化 / 还原", () => winAction("max")),
+      mkWinBtn("i-win-close", "关闭", () => winAction("close"), "close"),
+    );
+    bar.append(drag, winBtns);
+  }
 
   // Left sidebar: the set of open documents (live from the tab strip).
   const aside = document.createElement("aside");
@@ -611,6 +624,195 @@ function toggleAppMenu(anchor: HTMLButtonElement, rows: MenuRow[]): void {
   items[0]?.focus();
 }
 
+/* ---------- Right-click menu (Chinese) ----------
+ * The webview's own context menu is English (WebKit's dev items: Reload /
+ * Inspect Element) because the app bundle ships no zh-Hans localization, so the
+ * app draws its own menu and suppresses the default one. */
+
+type CtxRow =
+  | { label: string; hint?: string; disabled?: boolean; run: () => void }
+  | "sep";
+
+let ctxMenuEl: HTMLElement | null = null;
+
+function closeCtxMenu(): void {
+  ctxMenuEl?.remove();
+  ctxMenuEl = null;
+}
+
+/** The editor owned by the focused/right-clicked tab, if any. */
+function ctxEditor(): EditorHandle | null {
+  const h = activeEditor();
+  return h && (h.view.hasFocus || h.root.contains(document.activeElement)) ? h : null;
+}
+
+function ctxField(): HTMLInputElement | HTMLTextAreaElement | null {
+  const a = document.activeElement;
+  return a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement ? a : null;
+}
+
+function selectedText(): string {
+  const f = ctxField();
+  if (f) return f.value.slice(f.selectionStart ?? 0, f.selectionEnd ?? 0);
+  const h = ctxEditor();
+  if (h) {
+    const { from, to } = h.view.state.selection.main;
+    return h.view.state.sliceDoc(from, to);
+  }
+  return window.getSelection()?.toString() ?? "";
+}
+
+async function ctxCopy(): Promise<void> {
+  const text = selectedText();
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    toastMsg("复制失败");
+  }
+}
+
+async function ctxCut(): Promise<void> {
+  if (!selectedText()) return;
+  await ctxCopy();
+  const h = ctxEditor();
+  if (h) {
+    h.view.dispatch(h.view.state.replaceSelection(""));
+    return;
+  }
+  document.execCommand("delete"); // inputs / contenteditable
+}
+
+async function ctxPaste(): Promise<void> {
+  let text = "";
+  try {
+    text = await navigator.clipboard.readText();
+  } catch {
+    toastMsg("无法读取剪贴板，请使用快捷键粘贴");
+    return;
+  }
+  if (!text) return;
+  const h = ctxEditor();
+  if (h) {
+    h.view.dispatch(h.view.state.replaceSelection(text));
+    return;
+  }
+  const f = ctxField();
+  if (f) {
+    const from = f.selectionStart ?? f.value.length;
+    const to = f.selectionEnd ?? from;
+    f.setRangeText(text, from, to, "end");
+    f.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+}
+
+function buildCtxRows(): CtxRow[] {
+  const h = ctxEditor();
+  const f = ctxField();
+  const editable =
+    h !== null || f !== null || (document.activeElement as HTMLElement | null)?.isContentEditable === true;
+  const sel = selectedText().length > 0;
+  const mac = isMacTauri();
+  const mod = mac ? "⌘" : "Ctrl+";
+  const shiftMod = mac ? "⇧⌘" : "Ctrl+Shift+";
+  return [
+    {
+      label: "撤销",
+      hint: `${mod}Z`,
+      disabled: !editable,
+      run: () => (h ? cmUndo(h.view) : document.execCommand("undo")),
+    },
+    {
+      label: "重做",
+      hint: `${shiftMod}Z`,
+      disabled: !editable,
+      run: () => (h ? cmRedo(h.view) : document.execCommand("redo")),
+    },
+    "sep",
+    { label: "剪切", hint: `${mod}X`, disabled: !sel, run: () => void ctxCut() },
+    { label: "复制", hint: `${mod}C`, disabled: !sel, run: () => void ctxCopy() },
+    { label: "粘贴", hint: `${mod}V`, disabled: !editable, run: () => void ctxPaste() },
+    "sep",
+    {
+      label: "全选",
+      hint: `${mod}A`,
+      run: () => {
+        if (h) {
+          cmSelectAll(h.view);
+          return;
+        }
+        document.execCommand("selectAll");
+      },
+    },
+    "sep",
+    { label: "命令面板…", hint: `${shiftMod}P`, run: () => openPalette() },
+  ];
+}
+
+function openContextMenu(x: number, y: number, rows: CtxRow[]): void {
+  closeCtxMenu();
+  const menu = document.createElement("div");
+  menu.id = "ctx-menu";
+  menu.className = "app-menu";
+  menu.setAttribute("role", "menu");
+  for (const row of rows) {
+    if (row === "sep") {
+      const s = document.createElement("div");
+      s.className = "menu-sep";
+      menu.append(s);
+      continue;
+    }
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "menu-item";
+    b.setAttribute("role", "menuitem");
+    b.disabled = row.disabled === true;
+    const label = document.createElement("span");
+    label.className = "menu-label";
+    label.textContent = row.label;
+    b.append(label);
+    if (row.hint) {
+      const hint = document.createElement("span");
+      hint.className = "menu-hint";
+      hint.textContent = row.hint;
+      b.append(hint);
+    }
+    b.addEventListener("click", () => {
+      closeCtxMenu();
+      row.run();
+    });
+    menu.append(b);
+  }
+  document.getElementById("app")?.append(menu);
+  menu.style.left = `${Math.min(x, window.innerWidth - menu.offsetWidth - 8)}px`;
+  menu.style.top = `${Math.min(y, window.innerHeight - menu.offsetHeight - 8)}px`;
+  ctxMenuEl = menu;
+}
+
+function initContextMenu(): void {
+  document.addEventListener("contextmenu", (e) => {
+    const t = e.target as HTMLElement | null;
+    if (!t) return;
+    e.preventDefault(); // the webview's default menu is English — never show it
+    openContextMenu(e.clientX, e.clientY, buildCtxRows());
+  });
+  document.addEventListener(
+    "mousedown",
+    (e) => {
+      if (ctxMenuEl && !ctxMenuEl.contains(e.target as Node)) closeCtxMenu();
+    },
+    true,
+  );
+  window.addEventListener("resize", closeCtxMenu);
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      if (e.key === "Escape") closeCtxMenu();
+    },
+    true,
+  );
+}
+
 /** Drive the frameless window; guarded so a plain-browser `vite dev` (no Tauri
  *  host, `getCurrentWindow()` throws) degrades to a toast instead of a crash. */
 function winAction(kind: "min" | "max" | "close"): void {
@@ -639,6 +841,15 @@ function detectChrome(): void {
         ? "linux"
         : "";
   if (plat) el.dataset.tauriPlatform = plat;
+}
+
+/** True only under a real Tauri host on macOS, where the native application
+ *  menu (Rust menu.rs) replaces the in-window toolbar buttons. */
+function isMacTauri(): boolean {
+  const inTauri =
+    typeof (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ ===
+    "object";
+  return inTauri && /Mac/.test(navigator.userAgent);
 }
 
 function toggleSidebar(): void {
@@ -4629,6 +4840,7 @@ function registerShortcuts(): void {
 layout();
 detectChrome();
 registerShortcuts();
+initContextMenu();
 // First-interaction probe (spec P1/P2): the app_ping round-trip is the wired
 // timing endpoint for the manual GUI cold-start measurement. A headless CI
 // cannot observe real first-paint, so §2 records P1/P2 as human smoke items.
@@ -4646,6 +4858,78 @@ initDragDrop();
 void listen<string[]>("second-instance-open", (e) => {
   for (const p of e.payload) void openPath(p);
 });
+
+// Native app menu (macOS): Rust menu items forward their `menu:` ids here.
+// ACTION_DEFS first (shared with the keymap), then the extended commands.
+void listen<string>("menu://action", (e) => runMenuAction(e.payload));
+
+function runMenuAction(raw: string): void {
+  const id = raw.replace(/^menu:/, "");
+  const def = ACTION_DEFS.find((d) => d.id === id);
+  if (def) {
+    def.run();
+    return;
+  }
+  switch (id) {
+    case "open-mf4":
+      void openMf4File();
+      break;
+    case "open-blf":
+      void openBlfFile();
+      break;
+    case "viewer":
+      void openViewerFile();
+      break;
+    case "recent-clear":
+      void clearRecentList();
+      break;
+    case "fif":
+      openFindInFiles();
+      break;
+    case "replace-preview":
+      openReplacePreview();
+      break;
+    case "wrap":
+      toggleEditorWrap();
+      break;
+    case "font-in":
+      activeEditor()?.zoomFont(1);
+      break;
+    case "font-out":
+      activeEditor()?.zoomFont(-1);
+      break;
+    case "font-reset":
+      activeEditor()?.fontReset();
+      break;
+    case "can-export-csv":
+      void onCanExport("csv");
+      break;
+    case "can-export-jsonl":
+      void onCanExport("jsonl");
+      break;
+    case "parser-panel":
+      toggleParserDock();
+      break;
+    case "script":
+      openScriptManager();
+      break;
+    case "keymap":
+      openKeymapSettings();
+      break;
+    case "theme-light":
+      theme.set("light");
+      break;
+    case "theme-dark":
+      theme.set("dark");
+      break;
+    case "theme-vampire":
+      theme.set("vampire");
+      break;
+    case "theme-auto":
+      theme.set("auto");
+      break;
+  }
+}
 
 /** Files from the initial command line (double-click / file association). */
 async function openLaunchArgs(): Promise<void> {

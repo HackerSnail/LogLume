@@ -488,6 +488,15 @@ html.has-custom-titlebar .win-btns {
   background: var(--win-close);
   color: #fff;
 }
+/* macOS uses the native titlebar (Overlay style): the traffic lights float over
+ * the appbar's left edge, so reserve room and keep the custom window controls
+ * out of the way entirely. */
+html[data-tauri-platform="mac"] .appbar {
+  padding-left: 84px;
+}
+html[data-tauri-platform="mac"] .win-btns {
+  display: none;
+}
 /* Appbar dropdown: NoteLume has no dropdown, so derive it from its floating
  * layers — --bg fill, 1px --border, --r-md, --shadow-2, 26px rows with
  * --hover, 1px separators, and a right-aligned muted hint slot. */
@@ -520,10 +529,14 @@ html.has-custom-titlebar .win-btns {
   text-align: left;
   white-space: nowrap;
 }
-.app-menu .menu-item:hover,
+.app-menu .menu-item:hover:not(:disabled),
 .app-menu .menu-item:focus {
   background: var(--hover);
   outline: none;
+}
+.app-menu .menu-item:disabled {
+  color: var(--muted);
+  opacity: 0.45;
 }
 .app-menu .menu-hint {
   margin-left: auto;

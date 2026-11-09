@@ -3,3 +3,34 @@ node_modules/
 dist/
 *.lumelogtmp
 .superpowers/
+
+# macOS finder / metadata junk
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+.apdisk
+__MACOSX/
+Network Trash Folder
+Temporary Items
+
+# Editor / tool temp files (test fixtures under crates/**/*.log are tracked)
+/npm-out.txt
+/npm-debug.log*
+/*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+*.orig
+*.rej
