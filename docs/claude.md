@@ -37,6 +37,6 @@ LumeLog：跨平台开源 Notepad++ 替代编辑器，保留 Notepad++ 熟悉的
 
 ## Git
 
-- 仓库地址：<https://gitee.com/hackerSnail/lume-log.git>
+- 仓库地址：<https://gitee.com/hackerSnail/log-lume>
 - commit 后直接 push。
 - 每次改完代码，commit & push 之前先在根目录 `CHANGELOG.md` 追加条目：按 git log 时间倒序（最新在最上方），写清改了什么文件、为什么、验证结果（测试名/命令），不写空话。
