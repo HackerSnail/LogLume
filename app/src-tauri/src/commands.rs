@@ -2669,6 +2669,25 @@ pub fn csv_run(
 
 // ---- inspector git section (Plan 34/35) -------------------------------------
 
+/// `[code]message` → structured IPC error. The git2 layer tags actionable
+/// failures (git_dirty, no_upstream, auth, network, git_conflict, ...); plain
+/// messages keep the `git` code. `detail` always carries the raw reason so the
+/// Chinese template in `ipc.ts` can append it.
+fn git_err(e: String) -> IpcError {
+    match e.strip_prefix('[').and_then(|rest| rest.split_once(']')) {
+        Some((code, msg)) if !code.is_empty() => IpcError {
+            code: code.to_string(),
+            message: msg.trim().to_string(),
+            detail: Some(msg.trim().to_string()),
+        },
+        _ => IpcError {
+            code: "git".to_string(),
+            message: e.clone(),
+            detail: Some(e),
+        },
+    }
+}
+
 /// Probe the git repo around `path` (read-only, built-in libgit2).
 #[tauri::command]
 pub fn git_probe(path: String) -> Result<crate::gitinfo::GitInfo, IpcError> {
@@ -2680,7 +2699,7 @@ pub fn git_probe(path: String) -> Result<crate::gitinfo::GitInfo, IpcError> {
 /// Whole-repo change list for the inspector panel.
 #[tauri::command]
 pub fn git_status(root: String) -> Result<Vec<crate::gitinfo::GitFileStatus>, IpcError> {
-    crate::gitinfo::git_status(Path::new(&root)).map_err(|e| IpcError::new("git", e))
+    crate::gitinfo::git_status(Path::new(&root)).map_err(git_err)
 }
 
 /// Recent commits (HEAD, time order).
@@ -2689,8 +2708,7 @@ pub fn git_log(
     root: String,
     limit: Option<usize>,
 ) -> Result<Vec<crate::gitinfo::GitCommitInfo>, IpcError> {
-    crate::gitinfo::git_log(Path::new(&root), limit.unwrap_or(30))
-        .map_err(|e| IpcError::new("git", e))
+    crate::gitinfo::git_log(Path::new(&root), limit.unwrap_or(30)).map_err(git_err)
 }
 
 /// Files touched by one commit (vs its first parent).
@@ -2699,7 +2717,7 @@ pub fn git_commit_files(
     root: String,
     id: String,
 ) -> Result<Vec<crate::gitinfo::GitCommitFile>, IpcError> {
-    crate::gitinfo::git_commit_files(Path::new(&root), &id).map_err(|e| IpcError::new("git", e))
+    crate::gitinfo::git_commit_files(Path::new(&root), &id).map_err(git_err)
 }
 
 /// Unified diff for one repo-relative file; `against` = "HEAD" or a commit id.
@@ -2709,8 +2727,7 @@ pub fn git_diff_file(
     file: String,
     against: String,
 ) -> Result<String, IpcError> {
-    crate::gitinfo::git_diff_file(Path::new(&root), &file, &against)
-        .map_err(|e| IpcError::new("git", e))
+    crate::gitinfo::git_diff_file(Path::new(&root), &file, &against).map_err(git_err)
 }
 
 /// `git init` in the directory containing `path` (user-confirmed in the UI).
@@ -2737,7 +2754,7 @@ pub fn git_commit(
         name.as_deref(),
         email.as_deref(),
     )
-    .map_err(|e| IpcError::new("git", e))
+    .map_err(git_err)
 }
 
 /// Stage every change (`git add -A`) and commit — the panel's commit form.
@@ -2754,5 +2771,138 @@ pub fn git_commit_all(
         name.as_deref(),
         email.as_deref(),
     )
-    .map_err(|e| IpcError::new("git", e))
+    .map_err(git_err)
+}
+
+/// Stage one repo-relative path (`git add <path>`).
+#[tauri::command]
+pub fn git_stage_path(root: String, path: String) -> Result<(), IpcError> {
+    crate::gitinfo::git_stage_path(Path::new(&root), &path).map_err(git_err)
+}
+
+/// Unstage one path (`git restore --staged <path>`).
+#[tauri::command]
+pub fn git_unstage_path(root: String, path: String) -> Result<(), IpcError> {
+    crate::gitinfo::git_unstage_path(Path::new(&root), &path).map_err(git_err)
+}
+
+/// Discard one worktree change. `confirmed` is mandatory: an unconfirmed call
+/// is rejected by the backend, so a wiring bug cannot silently drop edits.
+#[tauri::command]
+pub fn git_discard_path(
+    root: String,
+    path: String,
+    confirmed: bool,
+) -> Result<(), IpcError> {
+    crate::gitinfo::git_discard_path(Path::new(&root), &path, confirmed).map_err(git_err)
+}
+
+/// Local + remote branches with the current branch flagged.
+#[tauri::command]
+pub fn git_branches(root: String) -> Result<Vec<crate::gitinfo::GitBranchInfo>, IpcError> {
+    crate::gitinfo::git_branches(Path::new(&root)).map_err(git_err)
+}
+
+/// Switch branches. Safe by default; `force=true` (UI-confirmed) discards
+/// conflicting local edits instead of refusing.
+#[tauri::command]
+pub fn git_checkout_branch(
+    root: String,
+    name: String,
+    force: Option<bool>,
+) -> Result<String, IpcError> {
+    crate::gitinfo::git_checkout_branch(Path::new(&root), &name, force.unwrap_or(false))
+        .map_err(git_err)
+}
+
+/// Detached-HEAD checkout of a commit; the result message spells that out.
+#[tauri::command]
+pub fn git_checkout_commit(
+    root: String,
+    id: String,
+    force: Option<bool>,
+) -> Result<String, IpcError> {
+    crate::gitinfo::git_checkout_commit(Path::new(&root), &id, force.unwrap_or(false))
+        .map_err(git_err)
+}
+
+/// Revert a commit as a new commit; conflicting reverts roll back fully.
+#[tauri::command]
+pub fn git_revert_commit(root: String, id: String) -> Result<String, IpcError> {
+    crate::gitinfo::git_revert_commit(Path::new(&root), &id).map_err(git_err)
+}
+
+/// Remote/upstream/ahead-behind snapshot for the sync block (local state only).
+#[tauri::command]
+pub fn git_remote_status(
+    root: String,
+) -> Result<crate::gitinfo::GitRemoteStatus, IpcError> {
+    crate::gitinfo::git_remote_status(Path::new(&root)).map_err(git_err)
+}
+
+/// Fetch the default remote. Network-bound: runs off the UI thread.
+#[tauri::command]
+pub async fn git_fetch(root: String) -> Result<String, IpcError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::gitinfo::git_fetch(Path::new(&root)).map_err(git_err)
+    })
+    .await
+    .map_err(|e| IpcError::new("git", e.to_string()))?
+}
+
+/// Fetch + fast-forward / merge. Conflicts stay in the index for resolution.
+#[tauri::command]
+pub async fn git_pull(root: String) -> Result<crate::gitinfo::GitPullResult, IpcError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::gitinfo::git_pull(Path::new(&root)).map_err(git_err)
+    })
+    .await
+    .map_err(|e| IpcError::new("git", e.to_string()))?
+}
+
+/// Push the current branch. `set_upstream=true` is the confirmed first push.
+#[tauri::command]
+pub async fn git_push(
+    root: String,
+    set_upstream: Option<bool>,
+) -> Result<String, IpcError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::gitinfo::git_push(Path::new(&root), set_upstream.unwrap_or(false)).map_err(git_err)
+    })
+    .await
+    .map_err(|e| IpcError::new("git", e.to_string()))?
+}
+
+/// True while a merge is in progress.
+#[tauri::command]
+pub fn git_merge_state(root: String) -> Result<bool, IpcError> {
+    crate::gitinfo::git_merge_state(Path::new(&root)).map_err(git_err)
+}
+
+/// Commit a resolved merge (HEAD + MERGE_HEAD parents).
+#[tauri::command]
+pub fn git_merge_commit(root: String, message: String) -> Result<String, IpcError> {
+    crate::gitinfo::git_merge_commit(Path::new(&root), &message).map_err(git_err)
+}
+
+/// Abort a conflicted merge (hard reset to HEAD) — UI-confirmed.
+#[tauri::command]
+pub fn git_merge_abort(root: String) -> Result<(), IpcError> {
+    crate::gitinfo::git_merge_abort(Path::new(&root)).map_err(git_err)
+}
+
+/// Unmerged index entries for the conflict rows.
+#[tauri::command]
+pub fn git_conflicts(root: String) -> Result<Vec<crate::gitinfo::GitConflictInfo>, IpcError> {
+    crate::gitinfo::git_conflicts(Path::new(&root)).map_err(git_err)
+}
+
+/// Resolve one conflict with `ours` (用本地) or `theirs` (用远端).
+#[tauri::command]
+pub fn git_resolve_conflict(
+    root: String,
+    path: String,
+    side: String,
+) -> Result<(), IpcError> {
+    crate::gitinfo::git_resolve_conflict(Path::new(&root), &path, &side).map_err(git_err)
 }

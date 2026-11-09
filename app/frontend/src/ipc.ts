@@ -187,6 +187,17 @@ export type IpcErrorCode =
   | "plugin_not_found"
   | "plugin_bad_manifest"
   | "viewer_unsupported"
+  | "git"
+  | "git_dirty"
+  | "git_unconfirmed"
+  | "git_conflict"
+  | "git_identity"
+  | "git_no_remote"
+  | "git_detached"
+  | "no_upstream"
+  | "non_fast_forward"
+  | "auth"
+  | "network"
   | "unknown";
 
 /**
@@ -217,6 +228,17 @@ const IPC_ERROR_ZH: Record<IpcErrorCode, string> = {
   plugin_not_found: "解析插件不存在（可能已被删除）%s",
   plugin_bad_manifest: "解析插件缺少必要定义%s",
   viewer_unsupported: "不支持的查看格式（支持 xlsx/xlsm/docx）%s",
+  git: "Git 操作失败%s",
+  git_dirty: "工作区有未提交改动%s",
+  git_unconfirmed: "需要确认才能丢弃文件改动%s",
+  git_conflict: "存在未解决的冲突%s",
+  git_identity: "缺少提交者身份%s",
+  git_no_remote: "未配置 Git 远端%s",
+  git_detached: "分离 HEAD 状态限制%s",
+  no_upstream: "当前分支没有上游分支%s",
+  non_fast_forward: "推送被拒绝，请先拉取远端更新%s",
+  auth: "Git 认证失败%s",
+  network: "无法连接 Git 远端%s",
   unknown: "调用失败%s",
 };
 
@@ -1348,6 +1370,145 @@ export function gitCommitAll(
   email?: string,
 ): Promise<string> {
   return call<string>("git_commit_all", { root, message, name, email });
+}
+
+/** One branch row (`git_branches`). */
+export interface GitBranchInfo {
+  name: string;
+  current: boolean;
+  remote: boolean;
+  /** Configured upstream shorthand (`origin/main`), local branches only. */
+  upstream?: string;
+}
+
+/** Sync snapshot (`git_remote_status`); read-only, local refs only. */
+export interface GitRemoteStatus {
+  has_remote: boolean;
+  remote?: string;
+  url?: string;
+  branch?: string;
+  detached: boolean;
+  /** Configured upstream shorthand; absent when there is none. */
+  upstream?: string;
+  has_upstream: boolean;
+  ahead: number;
+  behind: number;
+}
+
+/** Result of `git_pull`; `status` = up_to_date | fast_forward | merged | conflicts. */
+export interface GitPullResult {
+  status: string;
+  message: string;
+  conflicts: string[];
+  ahead: number;
+  behind: number;
+}
+
+/** One unmerged index entry (`git_conflicts`). */
+export interface GitConflictInfo {
+  path: string;
+  ours: boolean;
+  theirs: boolean;
+  base: boolean;
+}
+
+/** Stage one repo-relative path. */
+export function gitStagePath(root: string, path: string): Promise<void> {
+  return call<void>("git_stage_path", { root, path });
+}
+
+/** Unstage one path (restore the index entry to HEAD). */
+export function gitUnstagePath(root: string, path: string): Promise<void> {
+  return call<void>("git_unstage_path", { root, path });
+}
+
+/**
+ * Discard one worktree change. `confirmed` is required by the backend: an
+ * unconfirmed call is rejected, so edits can never be dropped by accident.
+ */
+export function gitDiscardPath(
+  root: string,
+  path: string,
+  confirmed = true,
+): Promise<void> {
+  return call<void>("git_discard_path", { root, path, confirmed });
+}
+
+/** Local + remote branches, current flagged. */
+export function gitBranches(root: string): Promise<GitBranchInfo[]> {
+  return call<GitBranchInfo[]>("git_branches", { root });
+}
+
+/** Switch branches; `force` (UI-confirmed) discards conflicting local edits. */
+export function gitCheckoutBranch(
+  root: string,
+  name: string,
+  force = false,
+): Promise<string> {
+  return call<string>("git_checkout_branch", { root, name, force });
+}
+
+/** Detached-HEAD checkout of a commit; the returned message says so. */
+export function gitCheckoutCommit(
+  root: string,
+  id: string,
+  force = false,
+): Promise<string> {
+  return call<string>("git_checkout_commit", { root, id, force });
+}
+
+/** Revert a commit as a new commit. */
+export function gitRevertCommit(root: string, id: string): Promise<string> {
+  return call<string>("git_revert_commit", { root, id });
+}
+
+/** Remote/upstream/ahead-behind snapshot for the sync block. */
+export function gitRemoteStatus(root: string): Promise<GitRemoteStatus> {
+  return call<GitRemoteStatus>("git_remote_status", { root });
+}
+
+/** Fetch the default remote (network; runs off the UI thread). */
+export function gitFetch(root: string): Promise<string> {
+  return call<string>("git_fetch", { root });
+}
+
+/** Fetch + fast-forward / merge; conflicts stay in the index for resolution. */
+export function gitPull(root: string): Promise<GitPullResult> {
+  return call<GitPullResult>("git_pull", { root });
+}
+
+/** Push the current branch; `setUpstream` is the confirmed first push. */
+export function gitPush(root: string, setUpstream = false): Promise<string> {
+  return call<string>("git_push", { root, setUpstream });
+}
+
+/** True while a merge is in progress (MERGE_HEAD present). */
+export function gitMergeState(root: string): Promise<boolean> {
+  return call<boolean>("git_merge_state", { root });
+}
+
+/** Commit a resolved merge (HEAD + MERGE_HEAD parents). */
+export function gitMergeCommit(root: string, message: string): Promise<string> {
+  return call<string>("git_merge_commit", { root, message });
+}
+
+/** Abort a conflicted merge (hard reset to HEAD; UI confirms). */
+export function gitMergeAbort(root: string): Promise<void> {
+  return call<void>("git_merge_abort", { root });
+}
+
+/** Unmerged index entries for the conflict rows. */
+export function gitConflicts(root: string): Promise<GitConflictInfo[]> {
+  return call<GitConflictInfo[]>("git_conflicts", { root });
+}
+
+/** Resolve one conflict with `ours` (用本地) or `theirs` (用远端). */
+export function gitResolveConflict(
+  root: string,
+  path: string,
+  side: "ours" | "theirs",
+): Promise<void> {
+  return call<void>("git_resolve_conflict", { root, path, side });
 }
 
 // ---- launch args / single instance (Plan 43) -----------------------------------
