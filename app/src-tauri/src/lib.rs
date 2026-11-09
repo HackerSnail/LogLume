@@ -45,6 +45,7 @@ pub fn run() {
         )))
         .invoke_handler(tauri::generate_handler![
             commands::app_ping,
+            commands::reveal_in_folder,
             commands::doc_open,
             commands::doc_chunk,
             commands::doc_reload,

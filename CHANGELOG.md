@@ -2,6 +2,21 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-09 — 全覆盖右键菜单（对齐 NoteLume）+ 合入 AI 自定义模型
+
+**依据：** 用户要求「所有右键参考 NoteLume 重绘，AI 要能自定义模型」。NoteLume 右键体系见 `src/main.js` 的 `placeMenu`/`makeMenuItem`/`showTreeMenu`/`attachEditorContextMenu`/`openEditContextMenu`/`openTabContextMenu`/`installGlobalContextMenu`，视觉见 `src/style.css` 的 `.cv-menu/.tree-menu/.cv-menu-item/.cv-menu-sep`。开工前先把已完成的 `origin/feat/ai-custom-model`（96cf458）fast-forward 合入 main，保留其「自定义」预设、手动填写模型与地址/模型分字段校验。
+
+### Task 1. 通用右键菜单模块
+**Files:** Add `app/frontend/src/contextmenu.ts`（单例 fixed 菜单、`clampMenuPosition` 视口内收、hover 子菜单、mousedown/Esc/wheel/resize 关闭、↑↓/Home/End/Enter 键盘导航；`CtxRow = 菜单项 | 分隔线 | 子菜单`）；Add `app/frontend/src/contextmenu.test.ts`（5 例：定位收边、点击执行、disabled 不执行、Esc/外部关闭、子菜单展开）；Modify `app/frontend/index.html`（新增 copy/cut/paste/select-all/external/bookmark/format/sort/follow/filter 图标）；Modify `app/frontend/src/styles.css`（`.ctx-menu` 190px/60vh/4px 内边距/`--r-md`/`--shadow-3`，行 28px/6px 圆角/hover 填充，层级高于模态）。
+**Why:** 此前全站没有任何 `contextmenu` 处理，右键会弹 WebView2 原生菜单（返回/刷新/检查），和 NoteLume 的自绘菜单观感完全不一致。
+
+### Task 2. 分区接入
+**Files:** Modify `app/frontend/src/main.ts`（`installContextMenus` 单一 document 委托：编辑器→剪贴板+行操作/格式化/书签/AI/视图子菜单；只读列表→复制选中行/AI 解释/错误归纳/查询面板/跟随尾部；CAN·解析·CSV 表格→复制单元格/整行/在日志中定位；MF4 表格→复制单元格/整行；PDF 查看区→复制选中文本；标签页与侧栏文档→关闭/关闭其他/关闭全部/复制路径/在文件管理器中显示；input/textarea/contenteditable→撤销/剪切/复制/粘贴/全选；其余区域→压制原生菜单且不弹自绘）；Modify `app/frontend/src/tabs.ts`（`.tab` 写入 `data-doc-id`）；Modify `app/frontend/src/listview.ts`（`selectLine()` 让右键行先成为选区）；Modify `app/src-tauri/src/commands.rs`（`reveal_in_folder`：Windows `explorer /select,`、macOS `open -R`、Linux `xdg-open`，不存在返回 `[not_found]`）、`app/src-tauri/src/lib.rs`（注册）；Modify `app/frontend/src/ipc.ts`（`revealInFolder`）。
+**Why:** 右键菜单必须落到日志/报文场景：编辑器与只读列表共用 AI 三场景，CAN/解析表格复用源行跳转，标签/侧栏复用既有 `handleClose` 的保存确认，未保存文档不会静默关闭。
+
+**验证:** `npx tsc --noEmit` 通过；`npm run build`（tsc + vite）通过；`npx vitest run src/contextmenu.test.ts src/listview.test.ts src/tabs.test.ts` 23 passed；全量 `npx vitest run` 281 tests 中 269 passed，唯一失败为既有 `gitpanel.test.ts`（Node 26 + jsdom 29 下全局 `localStorage` 为 undefined，12 例均卡在同一 `beforeEach`，与本次改动无关）；`cargo check -p lumelog-app` 通过。
+**未做 / 未验:** 未在真实 Tauri 窗口逐一右键点击走查（无交互桌面会话）；`reveal_in_folder` 未在 Windows 实际调用验证；`navigator.clipboard.readText()` 在 WebView2 的粘贴权限未实测（失败时 toast 提示，不静默）。
+
 ## 2026-11-09 — AI 自定义模型（feat/ai-custom-model，未合 main）
 
 **依据：** NoteLume `src/ai-settings.js` 的预设 + `custom` 与 `customMemory`（切到预设再切回「自定义」时恢复已填地址/模型；`activePresetId` 只是高亮，不做地址回退），以及 `validateAiConfig` 的「缺少协议头 / 地址非法 / 模型为空」分档报错。LogLume 沿用既有的 `[ai]` 配置（`base_url`/`model`），不新增 schema。
