@@ -1,8 +1,12 @@
-/* LumeLog design system. Tokens mirror the NoteLume interface reference:
- * three presets (light / dark / vampire=Dracula) on `:root[data-theme]`, each
- * a set of *source* variables; component rules read semantic aliases so a theme
- * swap repaints the whole chrome. Light is also the bare `:root` fallback so the
- * first paint (before the inline theme script in index.html lands) is sane.
+/* LumeLog design system — the token surface is NoteLume's own
+ * (`src/style.css:7-118`): three presets (light / dark / vampire=Dracula), each
+ * a set of *source* variables (--bg-primary / --bg-secondary / --text-primary /
+ * --text-secondary / --border-color / --accent-color) plus the code/pre/quote
+ * and --hover tokens. Anything a preset overrides at runtime repaints the whole
+ * chrome, because component rules below read semantic aliases (--bg,
+ * --bg-panel, --fg, --muted, --border, --hover, --accent) and never repeat a
+ * hex value of their own. Light is also the bare `:root` fallback so the first
+ * paint (before the inline theme script in index.html lands) is sane.
  *
  * The app ships no other stylesheet, and this is the layout contract the
  * read-only virtual list depends on: every ancestor of `.listview` up to the
@@ -10,102 +14,133 @@
  * `clientHeight` collapses to the full spacer height, and `visibleWindow` asks
  * for the whole file at once (spec §3 "数据按块流动"). */
 
-/* ---- Design tokens -------------------------------------------------------
- * Source colours per theme. Every component rule reads the semantic aliases
- * (`--bg-panel`, `--text-2`, `--border`...), so a theme swap repaints the
- * chrome without touching layout rules. The three-layer scale is what
- * separates sidebar / editor / overlays with almost no borders:
- *   --bg (content) < --bg-panel (chrome) < --bg-elevated (popovers)
- * `--shadow` intentionally stays a *colour* because older rules splice it
- * into `box-shadow: 0 Npx Mpx var(--shadow)`; new rules use --shadow-1..3. */
+/* ---- Design tokens (NoteLume parity) ------------------------------------- */
 :root,
 :root[data-theme="light"] {
-  --bg: #ffffff;
-  --bg-panel: #f5f5f7;
-  --bg-elevated: #ffffff;
-  --bg-input: #f0f0f2;
-  --bg-hover: #ebebee;
-  --bg-active: #e3e3e7;
-  --text: #1d1d1f;
-  --text-2: #6e6e73;
-  --text-3: #8e8e93;
-  --border: #dcdce0;
-  --border-strong: #c8c8cd;
-  --accent: #0071e3;
-  --accent-soft: rgba(0, 113, 227, 0.10);
-  --selection: rgba(0, 113, 227, 0.22);
-  --warn: #9a6700;
-  --danger: #d70015;
-  --success: #248a3d;
-  --shadow: rgba(0, 0, 0, 0.12);              /* legacy colour alias */
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-2: 0 4px 14px rgba(0, 0, 0, 0.10), 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-3: 0 16px 44px rgba(0, 0, 0, 0.16), 0 2px 8px rgba(0, 0, 0, 0.08);
-  --overlay: rgba(0, 0, 0, 0.24);
+  --bg-primary: #ffffff;
+  --bg-secondary: #f4f5f7;
+  --text-primary: #24292e;
+  --text-secondary: #8a9099;
+  --border-color: #e4e6e9;
+  --accent-color: #2f6feb;
+  --code-bg: #eef0f3;
+  --pre-bg: #f6f8fa;
+  --quote-bar: #d7dade;
+  --hover: #eceef1;
+  --text-editor: #24292e;
+  --text-heading: #24292e;
+  --text-code: #c0341d;
+  --text-link: #2f6feb;
+  --text-quote: #8a9099;
+  --text-list: #24292e;
+  --highlight-yellow: rgba(255, 205, 0, 0.38);
+  --highlight-orange: rgba(255, 145, 0, 0.38);
+  --highlight-green: rgba(64, 192, 87, 0.32);
+  --highlight-teal: rgba(0, 191, 188, 0.34);
+  --highlight-blue: rgba(51, 154, 240, 0.32);
+  --highlight-violet: rgba(171, 104, 255, 0.32);
+  --highlight-pink: rgba(240, 101, 149, 0.32);
   color-scheme: light;
 }
 :root[data-theme="dark"] {
-  --bg: #1e2127;
-  --bg-panel: #171a1f;
-  --bg-elevated: #23262e;
-  --bg-input: #22252c;
-  --bg-hover: #262b33;
-  --bg-active: #2d333d;
-  --text: #d8dee6;
-  --text-2: #9aa4b0;
-  --text-3: #6f7681;
-  --border: #2b3038;
-  --border-strong: #3a4048;
-  --accent: #409cff;
-  --accent-soft: rgba(64, 156, 255, 0.14);
-  --selection: rgba(64, 156, 255, 0.30);
-  --warn: #ffb340;
-  --danger: #ff453a;
-  --success: #30d158;
-  --shadow: rgba(0, 0, 0, 0.5);
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.40);
-  --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.50);
-  --shadow-3: 0 20px 52px rgba(0, 0, 0, 0.62);
-  --overlay: rgba(0, 0, 0, 0.45);
+  --bg-primary: #1e2127;
+  --bg-secondary: #171a1f;
+  --text-primary: #d8dee6;
+  --text-secondary: #7b828d;
+  --border-color: #2b3038;
+  --accent-color: #5b8cff;
+  --code-bg: #262b33;
+  --pre-bg: #14161b;
+  --quote-bar: #3a4048;
+  --hover: #262b33;
+  --text-editor: #d8dee6;
+  --text-heading: #d8dee6;
+  --text-code: #f38ba8;
+  --text-link: #5b8cff;
+  --text-quote: #7b828d;
+  --text-list: #d8dee6;
+  --highlight-yellow: rgba(255, 205, 0, 0.26);
+  --highlight-orange: rgba(255, 145, 0, 0.26);
+  --highlight-green: rgba(64, 192, 87, 0.26);
+  --highlight-teal: rgba(0, 191, 188, 0.25);
+  --highlight-blue: rgba(51, 154, 240, 0.28);
+  --highlight-violet: rgba(171, 104, 255, 0.27);
+  --highlight-pink: rgba(240, 101, 149, 0.28);
   color-scheme: dark;
 }
 :root[data-theme="vampire"] {
-  --bg: #282a36;
-  --bg-panel: #21222c;
-  --bg-elevated: #2d2f3d;
-  --bg-input: #313342;
-  --bg-hover: #44475a;
-  --bg-active: #4b4e63;
-  --text: #f8f8f2;
-  --text-2: #bfc7d6;
-  --text-3: #6272a4;
-  --border: #44475a;
-  --border-strong: #52556b;
-  --accent: #bd93f9;
-  --accent-soft: rgba(189, 147, 249, 0.16);
-  --selection: rgba(189, 147, 249, 0.30);
-  --warn: #f1fa8c;
-  --danger: #ff5555;
-  --success: #50fa7b;
-  --shadow: rgba(0, 0, 0, 0.55);
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.45);
-  --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.55);
-  --shadow-3: 0 20px 52px rgba(0, 0, 0, 0.65);
-  --overlay: rgba(0, 0, 0, 0.45);
+  --bg-primary: #282a36;
+  --bg-secondary: #21222c;
+  --text-primary: #f8f8f2;
+  --text-secondary: #6272a4;
+  --border-color: #44475a;
+  --accent-color: #bd93f9;
+  --code-bg: #343746;
+  --pre-bg: #1b1c26;
+  --quote-bar: #6272a4;
+  --hover: #44475a;
+  --text-editor: #f8f8f2;
+  --text-heading: #f8f8f2;
+  --text-code: #ff79c6;
+  --text-link: #bd93f9;
+  --text-quote: #6272a4;
+  --text-list: #f8f8f2;
+  --highlight-yellow: rgba(241, 250, 140, 0.3);
+  --highlight-orange: rgba(255, 184, 108, 0.3);
+  --highlight-green: rgba(80, 250, 123, 0.26);
+  --highlight-teal: rgba(38, 220, 200, 0.26);
+  --highlight-blue: rgba(139, 233, 253, 0.28);
+  --highlight-violet: rgba(189, 147, 249, 0.3);
+  --highlight-pink: rgba(255, 121, 198, 0.28);
   color-scheme: dark;
+}
+/* Vampire keeps Dracula's own selection colour, as NoteLume does (:104-107). */
+:root[data-theme="vampire"] ::selection {
+  background: #44475a;
+  color: #f8f8f2;
 }
 
 :root {
-  /* Semantic aliases kept for the pre-existing component rules. Declared at
-   * plain `:root` specificity so a theme block never shadows them. */
+  /* Semantic aliases read by every component rule below (and by the older
+   * LogLume rules that predate this pass). Declared at plain `:root`
+   * specificity so a theme block never shadows them. */
+  --bg: var(--bg-primary);
+  --bg-panel: var(--bg-secondary);
+  /* NoteLume floats popovers on --bg, not on a third lighter layer. */
+  --bg-elevated: var(--bg-primary);
+  --bg-input: var(--bg-primary);
+  --bg-hover: var(--hover);
+  --bg-active: var(--hover);
+  --fg: var(--text-primary);
+  --text: var(--text-primary);
+  --text-2: var(--text-secondary);
+  --text-3: var(--text-secondary);
+  --muted: var(--text-secondary);
+  --faint: var(--text-secondary);
+  --border: var(--border-color);
+  --border-strong: var(--border-color);
+  --border-soft: var(--border-color);
   --bg-subtle: var(--bg-panel);
   --editor-bg: var(--bg);
   --gutter-bg: var(--bg);
-  --muted: var(--text-2);
-  --faint: var(--text-3);
-  --border-soft: color-mix(in srgb, var(--border) 62%, transparent);
+  --accent: var(--accent-color);
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+  --selection: var(--hover);
+  --warn: #9a6700;
+  --danger: #e5484d;
+  --success: #248a3d;
+  --win-close: #e81123;
+  --shadow: rgba(0, 0, 0, 0.28);              /* legacy colour alias */
+  /* Shadows are only used by NoteLume's floating layers (find bar, suggest,
+     palette, prompt): no ambient card shadows anywhere. */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-2: 0 8px 28px rgba(0, 0, 0, 0.22);
+  --shadow-3: 0 12px 40px rgba(0, 0, 0, 0.28);
+  --overlay: rgba(0, 0, 0, 0.28);
 
-  /* Radii: one per control family. Never mix two values in the same family. */
+  /* Radii exactly the six values NoteLume uses: 4 (rows / tab-x), 5 (format
+     buttons / swatches), 6 (controls), 8 (find + suggest), 10 (modals), 12
+     (selection toolbar). */
   --r-xs: 4px;
   --r-sm: 6px;
   --r-md: 8px;
@@ -113,7 +148,7 @@
   --r-xl: 12px;
   --r-pill: 999px;
 
-  /* 4px spacing scale. */
+  /* 4px spacing scale (NoteLume's paddings are 2/4/6/8/10/12). */
   --sp-1: 4px;
   --sp-2: 8px;
   --sp-3: 12px;
@@ -122,38 +157,48 @@
   --sp-6: 24px;
   --sp-8: 32px;
 
-  /* Control heights: every chrome row is a multiple of 4. */
-  --h-toolbar: 40px;
-  --h-control: 28px;
+  /* Row metrics. Toolbar height is content-driven (padding 8 + 26 control),
+   * which is what makes NoteLume's bar 42px instead of a fixed strip. */
+  --h-toolbar: 42px;
+  --h-control: 26px;
   --h-control-sm: 20px;
-  --h-tabbar: 34px;
-  --h-row: 30px;
+  --h-tabbar: 30px;
+  --h-row: 24px;
   --w-sidebar: 280px;
-  --w-inspector: 288px;
+  --w-inspector: 280px;
 
   /* UI stack avoids 宋体; mono stack falls back to the system mono when the
    * nicer faces aren't installed. Shared across all three themes. */
   --font-ui: "Inter", "HarmonyOS Sans", "Noto Sans SC", -apple-system, "Segoe UI",
     "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: "JetBrains Mono", "Fira Code", "SFMono-Regular", Consolas,
-    "Liberation Mono", monospace;
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, "SFMono-Regular",
+    Consolas, "Liberation Mono", Menlo, monospace;
+  /* CodeMirror source-mode typography, straight from NoteLume's buildTheme
+   * (`source-editor.js:36-59`): 14px, line-height 1.7. */
+  --editor-font-family: var(--font-mono);
+  --editor-font-size: 14px;
+  --editor-line-height: 1.7;
 
   --fs-11: 11px;
   --fs-12: 12px;
   --fs-13: 13px;
+  --fs-14: 14px;
   --fs-15: 15px;
   --lh-ui: 1.5;
   --lh-tight: 1.25;
   /* Must equal listview.ts ROW_HEIGHT (locked by listview.test.ts). */
-  --fs-editor: 12.5px;
-  --lh-editor: 20px;
-  --ls-caps: 0.04em;
+  --fs-editor: 14px;
+  --lh-editor: 1.75;
+  --lh-row-fixed: 20px;
+  --ls-caps: 0.5px;
 
-  /* Motion: only state changes, never decorative travel. */
-  --dur-1: 90ms;
-  --dur-2: 140ms;
-  --dur-3: 200ms;
-  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  /* Motion: the literal durations NoteLume uses (0.1s / 0.12s / 0.15s),
+   * always ease / ease-out, and never on layout properties. */
+  --dur-1: 100ms;
+  --dur-2: 120ms;
+  --dur-3: 150ms;
+  --ease-out: ease-out;
+  --ease: ease;
 
   /* One z-index ladder for the whole app. */
   --z-resizer: 4;
@@ -168,35 +213,28 @@
  * WebView2 falls back to native button/select chrome otherwise (system font,
  * bevel, focus ring), which is the single biggest "web page in a shell" tell.
  * Checkboxes/radios are excluded: they keep the native indicator and only
- * inherit `accent-color`. Family heights are applied here so every new control
- * lands on the same 28px grid; small inline controls opt out locally. */
+ * inherit `accent-color` (NoteLume's only checkbox treatment).
+ * `:where()` keeps these at zero specificity so every component rule below
+ * still wins without needing to out-specify the baseline. */
 :where(button, input, select, textarea) {
   font: inherit;
   color: inherit;
 }
-/* `:where()` keeps these at zero specificity so every component rule in this
- * file still wins without needing to out-specify the baseline. */
 :where(button) {
   height: var(--h-control);
-  padding: 0 10px;
+  padding: 0 8px;
   border: 1px solid transparent;
   border-radius: var(--r-sm);
   background: transparent;
-  color: var(--text-2);
+  color: var(--fg);
   cursor: default;
   transition:
     background-color var(--dur-1) var(--ease-out),
     color var(--dur-1) var(--ease-out),
-    border-color var(--dur-1) var(--ease-out),
-    transform var(--dur-1) var(--ease-out);
+    border-color var(--dur-1) var(--ease-out);
 }
 :where(button):hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-:where(button):active {
-  background: var(--bg-active);
-  transform: scale(0.97);
+  background: var(--hover);
 }
 :where(button):disabled {
   opacity: 0.45;
@@ -205,29 +243,24 @@
 :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
   height: var(--h-control);
   padding: 0 8px;
-  background: var(--bg-input);
-  color: var(--text);
-  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
   border-radius: var(--r-sm);
   outline: none;
-  transition:
-    border-color var(--dur-1) var(--ease-out),
-    box-shadow var(--dur-1) var(--ease-out);
+  transition: border-color var(--dur-1) var(--ease-out);
 }
 :where(textarea) {
   height: auto;
   padding: 6px 8px;
 }
+/* NoteLume signals focus with the border colour alone — no glow ring (:1449-1451,
+ * :2224-2226). */
 :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea):focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 :where(input[type="checkbox"], input[type="radio"]) {
   accent-color: var(--accent);
-}
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
 }
 ::selection {
   background: var(--selection);
@@ -238,17 +271,18 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 5px;
   height: var(--h-control);
-  padding: 0 10px;
+  padding: 0 8px;
   border: 1px solid transparent;
   border-radius: var(--r-sm);
   background: transparent;
-  color: var(--text-2);
+  color: var(--fg);
   white-space: nowrap;
+  transition: background-color var(--dur-1) var(--ease-out);
 }
-.btn:active {
-  transform: scale(0.97);
+.btn:hover {
+  background: var(--hover);
 }
 .btn-primary {
   border-color: var(--accent);
@@ -257,37 +291,36 @@
 }
 .btn-primary:hover {
   background: var(--accent);
-  filter: brightness(1.06);
+  filter: brightness(1.08);
 }
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   height: var(--h-control-sm);
-  padding: 0 8px;
+  padding: 0 10px;
   border: 1px solid var(--border);
   border-radius: var(--r-pill);
-  background: transparent;
-  color: var(--text-2);
+  background: var(--hover);
+  color: var(--accent);
   font-size: var(--fs-12);
   white-space: nowrap;
 }
 .chip.active {
-  border-color: transparent;
-  background: var(--accent-soft);
-  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
 }
 .field {
   height: var(--h-control);
   padding: 0 8px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border);
   border-radius: var(--r-sm);
-  background: var(--bg-input);
-  color: var(--text);
+  background: var(--bg);
+  color: var(--fg);
 }
 .field:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 
@@ -340,8 +373,8 @@ body {
   display: none;
 }
 .ico {
-  width: 14px;
-  height: 14px;
+  width: 1em;
+  height: 1em;
   flex: none;
   fill: none;
   stroke: currentColor;
@@ -350,64 +383,61 @@ body {
   stroke-linejoin: round;
 }
 
+/* Toolbar — the same shape NoteLume's Windows titlebar takes (:223-256):
+ * content-driven height (8px padding + 26px control = 42px), 13px text,
+ * ghost buttons, no group separators. */
 .appbar {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
-  height: var(--h-toolbar);
-  padding: 0 var(--sp-3);
+  gap: 8px;
+  min-height: var(--h-toolbar);
+  padding: 8px 12px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-panel);
+  font-size: 13px;
 }
 .appbar-group {
   display: flex;
   align-items: center;
   gap: 2px;
 }
-.appbar-sep {
-  flex: none;
-  width: 1px;
-  height: 18px;
-  margin: 0 var(--sp-1);
-  background: var(--border-soft);
-}
+/* NoteLume's toolbar buttons are ghost controls: no visible border or fill
+ * until hover, 5px/8px padding, 6px radius, icon + optional label (:235-256). */
 .appbar button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 5px;
   height: var(--h-control);
-  padding: 0 10px;
-  font-size: var(--fs-13);
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg);
+  font-size: 13px;
   white-space: nowrap;
 }
 .appbar button.icon-only {
   width: var(--h-control);
   padding: 0;
 }
-.appbar button.icon-only .ico {
-  width: 15px;
-  height: 15px;
+.appbar button:hover {
+  background: var(--hover);
 }
+/* App name: 12px / 600, no ornament (:170-178). */
 .appbar .app-name {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  height: var(--h-control);
   margin-right: 2px;
-  color: var(--text);
-  font-size: 13px;
+  padding: 0 2px;
+  color: var(--fg);
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: -0.01em;
   white-space: nowrap;
 }
-.appbar .app-name::before {
-  content: "";
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--accent);
-}
+
 /* With `decorations:false` the appbar is the window titlebar: a flex-1 filler
  * carries `data-tauri-drag-region` (drag + double-click maximize), so only the
  * empty middle moves the window and every button stays clickable. */
@@ -431,30 +461,30 @@ html.has-custom-titlebar .win-btns {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 46px;
-  height: 32px;
+  width: 34px;
+  height: 28px;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: var(--text-2);
+  color: var(--muted);
   cursor: default;
 }
 /* `.appbar button` (0,1,1) beats `.win-btn` (0,1,0), so restate the height at
- * higher specificity — otherwise titlebar buttons silently inherit 28px. */
+ * higher specificity — otherwise titlebar buttons silently inherit 26px. */
 .appbar .win-btn {
-  height: 32px;
+  height: 28px;
 }
 .win-btn .ico {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
 }
 .win-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text);
+  background: var(--hover);
+  color: var(--fg);
 }
 .win-btn.close:hover {
-  background: var(--danger);
+  background: var(--win-close);
   color: #fff;
 }
 
@@ -480,9 +510,10 @@ html.has-custom-titlebar .win-btns {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  /* No side borders: the panel tone against the editor bg is the separator. */
+  /* NoteLume renders both rails on --bg-secondary with no side borders and a
+   * flat 10px inset (:655-662, :692-701). */
   background: var(--bg-panel);
-  padding: var(--sp-2) var(--sp-2) var(--sp-3);
+  padding: 10px;
   overflow: hidden;
 }
 .sidebar {
@@ -495,70 +526,76 @@ html.has-custom-titlebar .win-btns {
 .inspector.collapsed {
   display: none;
 }
+/* Section heading: 12px, uppercase, 0.5px tracking, muted, 6px/4px inset
+ * (NoteLume's `.panel h2`, :719-728). */
 .panel-title {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: 6px 8px;
-  font-size: var(--fs-12);
+  margin: 6px 4px;
+  padding: 0;
+  font-size: 12px;
   font-weight: 600;
-  color: var(--text-2);
-  letter-spacing: 0.01em;
+  color: var(--muted);
+  letter-spacing: var(--ls-caps);
+  text-transform: uppercase;
 }
 .panel-title .count {
   margin-left: auto;
-  color: var(--text-3);
-  font-size: var(--fs-11);
+  color: var(--muted);
+  font-size: 11px;
   font-weight: 400;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
 }
 .side-list {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: 2px 0;
+  padding: 0;
 }
+/* Checkbox rows / footer actions: NoteLume tree-row metrics (:857-881) —
+ * 2px/6px padding, 4px radius, 13px. */
 .side-option {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 28px;
-  padding: 0 8px;
-  border-radius: var(--r-sm);
-  color: var(--text-2);
-  font-size: var(--fs-12);
+  gap: 6px;
+  min-height: var(--h-row);
+  padding: 2px 6px;
+  border-radius: var(--r-xs);
+  color: var(--fg);
+  font-size: 13px;
   cursor: pointer;
   user-select: none;
 }
 .side-option:hover {
-  background: var(--bg-hover);
-  color: var(--text);
+  background: var(--hover);
 }
 .side-action {
   width: 100%;
-  height: 28px;
-  padding: 0 8px;
+  height: auto;
+  min-height: var(--h-row);
+  padding: 2px 6px;
   text-align: left;
   border: 0;
-  border-radius: var(--r-sm);
+  border-radius: var(--r-xs);
   background: transparent;
-  color: var(--text-2);
-  font-size: var(--fs-12);
+  color: var(--fg);
+  font-size: 13px;
   cursor: pointer;
 }
 .side-action:hover {
-  background: var(--bg-hover);
-  color: var(--text);
+  background: var(--hover);
 }
+/* NoteLume separates sidebar sections with 18px margins, not rules. */
 .side-foot {
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin-top: var(--sp-2);
-  padding-top: var(--sp-2);
-  border-top: 1px solid var(--border-soft);
+  margin-top: 12px;
+  padding-top: 0;
 }
 .side-option input {
   margin: 0;
@@ -578,22 +615,21 @@ html.has-custom-titlebar .win-btns {
 .status-follow {
   height: var(--h-control-sm);
   padding: 0 10px;
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   border-radius: var(--r-pill);
   background: transparent;
-  color: var(--text-2);
-  font-size: var(--fs-11);
+  color: var(--accent);
+  font-size: 12px;
   white-space: nowrap;
   cursor: pointer;
 }
 .status-follow:hover {
-  background: var(--bg-hover);
-  color: var(--text);
+  background: var(--hover);
 }
 .status-follow.active {
-  border-color: transparent;
-  background: var(--accent-soft);
-  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
 }
 .follow-resume {
   position: fixed;
@@ -603,10 +639,10 @@ html.has-custom-titlebar .win-btns {
   height: var(--h-control);
   padding: 0 12px;
   border: 1px solid var(--border);
-  border-radius: var(--r-pill);
-  background: var(--bg-elevated);
+  border-radius: var(--r-md);
+  background: var(--bg);
   color: var(--accent);
-  font-size: var(--fs-12);
+  font-size: 12px;
   box-shadow: var(--shadow-2);
   cursor: pointer;
   animation: fade-up var(--dur-2) var(--ease-out);
@@ -614,7 +650,8 @@ html.has-custom-titlebar .win-btns {
 .follow-resume:hover {
   border-color: var(--accent);
 }
-/* Non-blocking "changed on disk" bar for a dirty document (spec §4.4). */
+/* Non-blocking "changed on disk" bar for a dirty document (spec §4.4).
+ * LogLume-only surface, derived from NoteLume's prompt card at bar scale. */
 .ext-bar {
   position: fixed;
   left: 50%;
@@ -625,13 +662,13 @@ html.has-custom-titlebar .win-btns {
   align-items: center;
   gap: 10px;
   max-width: 92vw;
-  padding: 8px 14px;
-  background: var(--bg-elevated);
-  color: var(--text);
+  padding: 8px 12px;
+  background: var(--bg);
+  color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: var(--r-lg);
+  border-radius: var(--r-md);
   box-shadow: var(--shadow-2);
-  font-size: var(--fs-12);
+  font-size: 13px;
   animation: rise-in var(--dur-2) var(--ease-out);
 }
 @keyframes rise-in {
@@ -660,12 +697,16 @@ html.has-custom-titlebar .win-btns {
   white-space: nowrap;
 }
 .ext-bar button {
-  border-color: var(--border-strong);
+  border-color: var(--border);
+  background: var(--hover);
 }
 .ext-bar button:hover {
   border-color: var(--accent);
   color: var(--accent);
 }
+/* Three-way save prompt: NoteLume's `.nl-prompt` shell verbatim — 420px,
+ * bg/1px/radius 10/padding 16px 18px/gap 12, shadow 0 12 40 .28, 12px buttons
+ * at 5px/14px. */
 .modal-3way {
   position: fixed;
   inset: 0;
@@ -676,29 +717,49 @@ html.has-custom-titlebar .win-btns {
   background: var(--overlay);
 }
 .modal-3way-box {
-  width: min(420px, 92vw);
-  padding: 20px;
-  background: var(--bg-elevated);
-  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(420px, 86vw);
+  padding: 16px 18px;
+  background: var(--bg);
+  color: var(--fg);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-3);
 }
 .modal-3way-title {
-  margin-bottom: 8px;
-  font-size: var(--fs-15);
+  margin: 0;
+  font-size: 13px;
   font-weight: 600;
 }
 .modal-3way-msg {
-  margin-bottom: 16px;
-  color: var(--text-2);
-  font-size: var(--fs-13);
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
   line-height: 1.5;
 }
 .modal-3way-actions {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+}
+.modal-3way-actions button {
+  height: auto;
+  padding: 5px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--hover);
+  color: var(--fg);
+  font-size: 12px;
+}
+.modal-3way-actions button:hover {
+  border-color: var(--accent);
+}
+.modal-3way-actions button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
 }
 /* Keyboard-shortcut settings (spec §5, M3 子项目 C). */
 .keymap-modal {
@@ -975,6 +1036,10 @@ html.has-custom-titlebar .win-btns {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Data tables (MF4) derive from NoteLume's prose table rules (:3297-3340):
+ * full 1px grid, 600-weight header over a 2px bottom rule, left-aligned cells,
+ * row hover on --hover and no zebra striping. Padding is 4px/8px instead of
+ * 8px/12px because these rows are data-dense like the CAN grid. */
 .mf4-table {
   overflow: auto;
   border: 1px solid var(--border);
@@ -987,8 +1052,8 @@ html.has-custom-titlebar .win-btns {
 }
 .mf4-table-el th,
 .mf4-table-el td {
-  border-bottom: 1px solid var(--border-soft);
-  padding: 3px 8px;
+  border: 1px solid var(--border);
+  padding: 4px 8px;
   text-align: left;
   white-space: nowrap;
 }
@@ -997,16 +1062,13 @@ html.has-custom-titlebar .win-btns {
   top: 0;
   z-index: var(--z-sticky);
   background: var(--bg-panel);
-  border-bottom: 2px solid var(--border-strong);
-  color: var(--text-2);
+  border-bottom: 2px solid var(--border);
+  color: var(--fg);
   font-weight: 600;
   cursor: pointer;
 }
-.mf4-table-el tbody tr:nth-child(2n) > td {
-  background: color-mix(in srgb, var(--text) 3.5%, transparent);
-}
 .mf4-table-el tbody tr:hover > td {
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  background: var(--hover);
 }
 .mf4-time,
 .mf4-null,
@@ -1142,33 +1204,36 @@ html.has-custom-titlebar .win-btns {
 .script-error {
   color: var(--danger);
 }
+/* Sidebar rows: NoteLume's tree rows (:857-881) — 2px/6px inset, 4px radius,
+ * 13px text, active row keeps the flat panel and grows a 3px accent bar. */
 .side-item {
   position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
-  height: var(--h-row);
-  padding: 0 8px;
-  border-radius: var(--r-sm);
-  color: var(--text);
+  min-height: var(--h-row);
+  padding: 2px 6px;
+  border-radius: var(--r-xs);
+  color: var(--fg);
+  font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
   cursor: pointer;
   transition: background-color var(--dur-1) var(--ease-out);
 }
 .side-item:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 .side-item.active {
-  background: var(--accent-soft);
+  background: transparent;
   font-weight: 600;
 }
 .side-item.active::before {
   content: "";
   position: absolute;
   left: 0;
-  top: 6px;
-  bottom: 6px;
+  top: 2px;
+  bottom: 2px;
   width: 3px;
   border-radius: 0 3px 3px 0;
   background: var(--accent);
@@ -1183,8 +1248,8 @@ html.has-custom-titlebar .win-btns {
   order: 2;
   flex: none;
   margin-left: auto;
-  color: var(--text-3);
-  font-size: var(--fs-11);
+  color: var(--muted);
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1206,20 +1271,32 @@ html.has-custom-titlebar .win-btns {
   padding: 2px 4px 8px;
   overflow: auto;
 }
+/* Inspector rows borrow NoteLume's frontmatter rows: flex, 8px gap, 12px/1.5,
+ * accent mono key with a trailing colon, wrapping value; no per-row rules. */
 .insp-row {
-  display: grid;
-  grid-template-columns: 84px 1fr;
-  gap: 12px;
+  display: flex;
+  gap: 8px;
   align-items: baseline;
-  padding: 2px 0;
+  padding: 1px 0;
+  font-size: 12px;
+  line-height: 1.5;
 }
 .insp-key {
-  color: var(--text-2);
-  font-size: var(--fs-12);
+  flex: 0 0 auto;
+  max-width: 45%;
+  overflow: hidden;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.insp-key::after {
+  content: ":";
 }
 .insp-val {
-  color: var(--text);
-  font-size: var(--fs-12);
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--fg);
   font-variant-numeric: tabular-nums;
   word-break: break-word;
 }
@@ -1230,34 +1307,35 @@ html.has-custom-titlebar .win-btns {
 .insp-empty {
   padding: 24px 12px;
   text-align: center;
-  color: var(--text-3);
-  font-size: var(--fs-11);
+  color: var(--muted);
+  font-size: 12px;
   line-height: 1.6;
 }
 .insp-section {
-  margin: 16px 0 6px;
-  font-size: var(--fs-11);
+  margin: 16px 4px 6px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: var(--ls-caps);
-  color: var(--text-3);
+  color: var(--muted);
   text-transform: uppercase;
 }
 .insp-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
   padding: 2px 0;
 }
+/* Tag pill: NoteLume's `.nl-tag` — accent text on --hover, 4px radius. */
 .insp-tag {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
+  gap: 2px;
+  padding: 0 5px;
   border: 0;
-  border-radius: var(--r-pill);
-  background: var(--accent-soft);
+  border-radius: var(--r-xs);
+  background: var(--hover);
   color: var(--accent);
-  font-size: var(--fs-12);
+  font-size: 12px;
 }
 .insp-tag-x {
   height: 16px;
@@ -1276,35 +1354,31 @@ html.has-custom-titlebar .win-btns {
 .insp-tag-input {
   flex: 1 1 80px;
   min-width: 80px;
-  height: 24px;
-  padding: 2px 4px;
-  border: none;
-  border-bottom: 1px solid var(--border-soft);
-  border-radius: 0;
-  background: none;
-  color: var(--text);
-  font-size: var(--fs-12);
+  height: 20px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--fg);
+  font-size: 12px;
   outline: none;
 }
 .insp-tag-input:focus {
-  border-bottom-color: var(--accent);
-  box-shadow: none;
+  border-color: var(--accent);
 }
 .insp-git-init {
   height: var(--h-control);
   margin-top: 6px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
+  padding: 0 8px;
+  border: 1px solid transparent;
   border-radius: var(--r-sm);
-  background: var(--bg-input);
-  color: var(--text);
-  font-size: var(--fs-12);
+  background: transparent;
+  color: var(--fg);
+  font-size: 12px;
   cursor: pointer;
 }
 .insp-git-init:hover {
-  border-color: var(--border-strong);
-  background: var(--bg-hover);
-  color: var(--text);
+  background: var(--hover);
 }
 .commit-box {
   display: flex;
@@ -1406,24 +1480,26 @@ html.has-custom-titlebar .win-btns {
   align-items: flex-end;
   gap: 2px;
   height: var(--h-tabbar);
-  padding: 3px 8px 0;
+  padding: 0 6px;
   overflow-x: auto;
   overflow-y: hidden;
   border-bottom: 1px solid var(--border);
   background: var(--bg-panel);
 }
+/* Tab: 12px, 4px/6px/4px/10px padding, 6px top radius, active tab on --bg with
+ * a 1px border that merges into the editor (:496-557). */
 #tabs .tab {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  max-width: 240px;
-  height: 30px;
-  padding: 0 6px 0 10px;
+  max-width: 220px;
+  padding: 4px 6px 4px 10px;
   border: 1px solid transparent;
   border-bottom: none;
   border-radius: var(--r-sm) var(--r-sm) 0 0;
-  color: var(--text-2);
+  color: var(--muted);
+  font-size: 12px;
   white-space: nowrap;
   cursor: pointer;
   transition:
@@ -1431,15 +1507,16 @@ html.has-custom-titlebar .win-btns {
     color var(--dur-1) var(--ease-out);
 }
 #tabs .tab:hover {
-  background: var(--bg-hover);
-  color: var(--text);
+  background: var(--hover);
+  color: var(--fg);
 }
 #tabs .tab.active {
   background: var(--bg);
-  color: var(--text);
+  color: var(--fg);
   border-color: var(--border);
+  border-bottom-color: var(--bg);
   /* Paints over the strip's hairline so the active tab joins the editor. */
-  box-shadow: 0 1px 0 var(--bg);
+  margin-bottom: -1px;
 }
 #tabs .dirty-dot {
   flex: none;
@@ -1509,46 +1586,55 @@ html.has-custom-titlebar .win-btns {
   outline: none;
 }
 
-/* CodeMirror chrome themed from tokens so the editor tracks the active theme.
- * (Syntax-token colours stay on the built-in highlight style; a per-theme
- * highlight theme is a later polish.) */
+/* CodeMirror chrome: NoteLume's `buildTheme` (`source-editor.js:36-59`) —
+ * transparent editor on --bg, 14px/1.7 mono, 8px content inset, gutter with a
+ * single right hairline, transparent active line, --hover on the active gutter,
+ * --hover selection. */
 .cm-editor {
   background: var(--bg);
+  font-size: var(--editor-font-size);
+}
+.cm-editor .cm-scroller {
   font-family: var(--font-mono);
-  font-size: var(--fs-editor);
+  line-height: var(--editor-line-height);
 }
 .cm-editor .cm-gutters {
   /* Same tone as the text: the gutter reads as part of the page, not a slab. */
-  background: var(--bg);
-  color: var(--text-3);
-  border-right: 1px solid var(--border-soft);
+  position: sticky;
+  left: 0;
+  min-height: 100%;
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  border-right: 1px solid var(--border);
   padding-right: 6px;
   font-variant-numeric: tabular-nums;
 }
+.cm-editor .cm-content {
+  padding: 8px 0;
+  caret-color: var(--accent);
+}
 .cm-editor .cm-content,
 .cm-editor .cm-line {
-  color: var(--text);
-  line-height: var(--lh-editor);
+  color: var(--fg);
 }
-.cm-editor .cm-content {
-  padding: 12px 0;
-}
-.cm-editor .cm-line {
-  padding: 0 16px 0 12px;
-}
-.cm-editor .cm-cursor {
+.cm-editor .cm-cursor,
+.cm-editor .cm-dropCursor {
   border-left-color: var(--accent);
   border-left-width: 2px;
 }
+/* NoteLume paints the active line transparent and only tints the gutter. */
 .cm-editor .cm-activeLine {
-  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  background: transparent;
 }
 .cm-editor .cm-activeLineGutter {
-  background: transparent;
-  color: var(--text-2);
+  background: var(--hover);
+  color: var(--fg);
 }
-.cm-editor.cm-focused > .cm-scroller > .cm-selectionBackground .cm-selectionLayer .cm-selectionBackground {
-  background: var(--selection);
+.cm-editor .cm-selectionBackground,
+.cm-editor.cm-focused .cm-selectionBackground,
+.cm-editor .cm-content ::selection {
+  background: var(--hover);
 }
 
 .listview {
@@ -1556,32 +1642,34 @@ html.has-custom-titlebar .win-btns {
   overflow: auto;
   background: var(--bg);
   font-family: var(--font-mono);
-  font-size: var(--fs-editor);
-  line-height: var(--lh-editor);
+  font-size: var(--editor-font-size);
+  /* Virtualisation measures rows in JS (ROW_HEIGHT=20), so the read-only view
+   * keeps a fixed 20px row instead of NoteLume's 1.7 line box. */
+  line-height: var(--lh-row-fixed);
 }
 .list-row {
   display: flex;
   width: 100%;
 }
 .list-row:hover {
-  background: color-mix(in srgb, var(--text) 4%, transparent);
+  background: var(--hover);
 }
 .list-gutter {
   flex: 0 0 auto;
   min-width: 6ch;
   padding-right: 12px;
   text-align: right;
-  color: var(--text-3);
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
   user-select: none;
 }
 .list-text {
   flex: 1 1 auto;
-  padding: 0 16px 0 12px;
-  color: var(--text);
+  padding: 0 12px 0 0;
+  color: var(--text-editor);
 }
 .list-pending {
-  color: var(--text-3);
+  color: var(--muted);
   font-style: italic;
 }
 
@@ -1608,31 +1696,41 @@ html.has-custom-titlebar .win-btns {
 .search-head {
   flex: 0 0 auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--sp-3);
-  min-height: 44px;
+  gap: 6px 12px;
+  min-height: 42px;
   padding: 8px 12px;
 }
 .query-opts {
   display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 4px 12px;
   min-width: 0;
 }
 .query-actions {
   display: flex;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 2px;
   margin-left: auto;
 }
+/* Buttons keep their label on one line; the head wraps instead of squeezing. */
+.search-head button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
 .search-head input {
-  flex: 1 1 auto;
+  flex: 1 1 160px;
 }
 .search-status {
   flex: 0 0 auto;
-  padding: 0 12px 8px;
-  color: var(--text-2);
-  font-size: var(--fs-12);
+  padding: 0 12px 6px;
+  color: var(--muted);
+  font-size: 12px;
 }
 .search-list {
   flex: 1 1 auto;
@@ -1664,7 +1762,7 @@ html.has-custom-titlebar .win-btns {
 }
 .query-cond {
   display: grid;
-  grid-template-columns: 88px 88px minmax(160px, 1fr) 28px;
+  grid-template-columns: 84px 84px minmax(160px, 1fr) 26px;
   align-items: center;
   gap: 6px;
 }
@@ -1672,18 +1770,21 @@ html.has-custom-titlebar .win-btns {
   min-width: 0;
 }
 .query-cond > button {
-  width: 28px;
+  width: 26px;
   padding: 0;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1;
-  color: var(--text-3);
+  color: var(--muted);
+}
+.query-cond > button:hover {
+  color: var(--fg);
 }
 .query-chk {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  color: var(--text-2);
-  font-size: var(--fs-12);
+  gap: 4px;
+  color: var(--fg);
+  font-size: 12px;
   white-space: nowrap;
 }
 .query-chk input {
@@ -1713,14 +1814,15 @@ html.has-custom-titlebar .win-btns {
   flex: 0 0 auto;
   width: 12ch;
 }
-/* Matched range highlight: translucent amber reads on light/dark/Dracula alike
- * without a per-theme token; the text color stays inherited. */
+/* Matched range highlight: NoteLume's find-match amber (:2015-2025). */
 .line-hl {
-  background: rgba(255, 204, 0, 0.38);
+  background: rgba(255, 205, 95, 0.45);
   border-radius: 2px;
 }
 
 /* Ctrl+G go-to-line: a small floating box anchored top-center. */
+/* Ctrl+G go-to-line: matches NoteLume's find bar (:2029-2044) — --bg-secondary
+ * fill, 1px border, 8px radius, 0 4 16 shadow, 8px padding. */
 .jump-panel {
   position: fixed;
   left: 50%;
@@ -1730,18 +1832,21 @@ html.has-custom-titlebar .win-btns {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 10px;
+  padding: 8px;
   border: 1px solid var(--border);
   border-radius: var(--r-md);
-  background: var(--bg-elevated);
-  box-shadow: var(--shadow-2);
+  background: var(--bg-panel);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
   animation: fade-up var(--dur-2) var(--ease-out);
 }
 .jump-panel input {
   width: 10ch;
 }
 
-/* Ctrl+Shift+P command palette: a centered modal sheet over a dim backdrop. */
+/* Ctrl+Shift+P command palette. NoteLume ships no palette, so the shell is
+ * derived from its two floating layers: `.nl-prompt` (bg/1px/radius 10/padding
+ * 10/shadow 0 12 40 .28) and `.nl-suggest` (rows 4px 10px, radius 5, accent
+ * fill on the active row). */
 .palette-overlay {
   position: fixed;
   inset: 0;
@@ -1756,110 +1861,114 @@ html.has-custom-titlebar .win-btns {
   width: min(560px, 90vw);
   display: flex;
   flex-direction: column;
+  padding: 10px;
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  background: var(--bg-elevated);
+  background: var(--bg);
   box-shadow: var(--shadow-3);
-  overflow: hidden;
   animation: fade-up var(--dur-2) var(--ease-out);
 }
 .palette-input {
-  height: 44px;
-  padding: 0 16px;
-  border: none;
-  border-bottom: 1px solid var(--border-soft);
-  border-radius: 0;
-  font-size: var(--fs-15);
-  background: var(--bg-elevated);
-  color: var(--text);
+  height: auto;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--hover);
+  color: var(--fg);
+  font-size: 13px;
   outline: none;
 }
 .palette-input:focus {
-  border-bottom-color: var(--border-soft);
-  box-shadow: none;
+  border-color: var(--accent);
 }
 .palette-list {
   max-height: 320px;
   overflow: auto;
-  padding: 4px 0;
+  padding: 0;
+  margin-top: 6px;
 }
 .palette-list:empty::after {
   content: "无匹配命令";
   display: block;
-  padding: 14px 16px;
-  color: var(--text-3);
-  font-size: var(--fs-12);
+  padding: 10px;
+  color: var(--muted);
+  font-size: 12px;
 }
 .palette-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  height: 34px;
-  padding: 0 16px;
+  min-height: 26px;
+  padding: 4px 10px;
+  border-radius: 5px;
   cursor: pointer;
-  color: var(--text);
-  font-size: var(--fs-13);
+  color: var(--fg);
+  font-size: 13px;
 }
 .palette-row:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 .palette-row.sel {
-  background: var(--accent-soft);
-  box-shadow: inset 2px 0 0 var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+.palette-row.sel .palette-hint {
+  color: rgba(255, 255, 255, 0.82);
 }
 .palette-hint {
-  color: var(--text-3);
+  color: var(--muted);
   font-family: var(--font-mono);
-  font-size: var(--fs-11);
+  font-size: 11px;
   white-space: nowrap;
 }
 
+/* Status bar: LogLume-only surface, derived from NoteLume's toolbar strip
+ * (padding 5px 12px, 13px, --bg-secondary, 1px rule) flipped to the bottom. */
 #status {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 28px;
-  padding: 0 12px;
+  min-height: 30px;
+  padding: 4px 12px;
   border-top: 1px solid var(--border);
   background: var(--bg-panel);
-  color: var(--text-2);
-  font-size: var(--fs-12);
+  color: var(--muted);
+  font-size: 12px;
 }
 #status .status-label {
-  color: var(--text-3);
-  font-size: var(--fs-11);
-  letter-spacing: 0.02em;
+  color: var(--muted);
+  font-size: 12px;
 }
 #status select {
-  height: var(--h-control-sm);
+  height: 20px;
   padding: 0 4px;
   border-color: transparent;
+  border-radius: var(--r-sm);
   background: transparent;
-  color: var(--text);
-  font-size: var(--fs-12);
+  color: var(--fg);
+  font-size: 12px;
 }
 #status select:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 #status select:focus {
-  border-color: transparent;
-  box-shadow: none;
-  outline-offset: 2px;
+  border-color: var(--accent);
+  outline: none;
 }
 #status .dirty-flag {
   color: var(--accent);
-  font-size: var(--fs-11);
+  font-size: 12px;
 }
 #status .doc-pos {
   margin-left: auto;
-  color: var(--text-2);
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 #status .status-watch {
   color: var(--warn);
-  font-size: var(--fs-11);
+  font-size: 12px;
 }
 #status.busy {
   opacity: 0.55;
@@ -1869,7 +1978,8 @@ html.has-custom-titlebar .win-btns {
   cursor: help;
 }
 
-/* Transient toast (bottom-center, auto-dismiss). */
+/* Transient toast (bottom-center, auto-dismiss). No NoteLume counterpart; the
+ * shell follows its prompt card (bg / 1px / radius 10 / shadow), scaled down. */
 #toast {
   position: fixed;
   left: 50%;
@@ -1877,13 +1987,13 @@ html.has-custom-titlebar .win-btns {
   z-index: var(--z-toast); /* above .recovery-banner: its buttons report via toast */
   transform: translateX(-50%) translateY(6px);
   max-width: 80vw;
-  padding: 9px 14px;
+  padding: 8px 12px;
   border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--bg-elevated);
-  color: var(--text);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--fg);
   box-shadow: var(--shadow-2);
-  font-size: var(--fs-12);
+  font-size: 13px;
   opacity: 0;
   pointer-events: none;
   transition:
@@ -2182,7 +2292,7 @@ html.has-custom-titlebar .win-btns {
 }
 .can-thead {
   flex: 0 0 auto;
-  border-bottom: 1px solid var(--border-strong);
+  border-bottom: 2px solid var(--border);
   background: var(--bg-panel);
 }
 .can-scroll {
@@ -2196,8 +2306,10 @@ html.has-custom-titlebar .win-btns {
   height: 20px;          /* matches ROW_HEIGHT so header columns align with body */
   white-space: nowrap;   /* same wrapping rule as .can-row cells */
   font-weight: 600;
-  color: var(--text-2);
+  color: var(--fg);
 }
+/* CAN rows keep their virtualised 20px height, so the grid comes from hairline
+ * borders (NoteLume's table rule) rather than padding. */
 .can-row {
   position: absolute;
   left: 0;
@@ -2207,15 +2319,19 @@ html.has-custom-titlebar .win-btns {
   align-items: center;
   cursor: pointer;
   white-space: nowrap;
+  border-bottom: 1px solid var(--border);
 }
 .can-row:hover {
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  background: var(--hover);
 }
 .can-cell {
   flex: 1 1 auto;
-  padding: 0 10px;
+  padding: 0 8px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.can-cell + .can-cell {
+  border-left: 1px solid var(--border);
 }
 .can-cell:last-child {
   flex: 2 1 auto;

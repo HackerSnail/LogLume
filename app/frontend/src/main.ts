@@ -294,25 +294,24 @@ function layout(): void {
   appName.className = "app-name";
   appName.textContent = "LogLume";
 
-  // Toolbar hierarchy: primary document actions | tools | view toggles.
-  // Grouping (and the separators) is what gives the bar a reading order instead
-  // of ten equally-weighted text buttons.
+  // Toolbar hierarchy: NoteLume's Windows bar is app name + icon-only category
+  // buttons + spacer + window controls, with no dividers between groups. Labels
+  // live in tooltips/aria-labels so the bar stays a strip of 26px ghost icons.
   const primary = document.createElement("div");
   primary.className = "appbar-group";
   primary.append(
-    mkBtn("打开", "打开文件（Ctrl+O）", () => void openFile(), "i-open"),
-    mkBtn("查询", "行过滤 / 高亮命中", () => openQueryPanel(), "i-search"),
-    mkBtn("报文", "显示 / 隐藏 CAN 报文面板", () => toggleCanDock(), "i-table"),
-    mkBtn("测量", "打开 MF4 测量文件（表格浏览与导出）", () => void openMf4File(), "i-wave"),
-    mkBtn("查看", "查看 xlsx / docx 文档（表格与文本）", () => void openViewerFile(), "i-doc"),
+    mkBtn("", "打开文件（Ctrl+O）", () => void openFile(), "i-open"),
+    mkBtn("", "行过滤 / 高亮命中", () => openQueryPanel(), "i-search"),
+    mkBtn("", "显示 / 隐藏 CAN 报文面板", () => toggleCanDock(), "i-table"),
+    mkBtn("", "打开 MF4 测量文件（表格浏览与导出）", () => void openMf4File(), "i-wave"),
+    mkBtn("", "查看 xlsx / docx 文档（表格与文本）", () => void openViewerFile(), "i-doc"),
   );
   const tools = document.createElement("div");
   tools.className = "appbar-group";
   tools.append(
-    mkBtn("脚本", "打开脚本管理器（QuickJS 逐行变换）", () => openScriptManager(), "i-script"),
-    mkBtn("解析", "用解析插件把当前文档解析为表格（plugins 目录）", () => toggleParserDock(), "i-plug"),
+    mkBtn("", "打开脚本管理器（QuickJS 逐行变换）", () => openScriptManager(), "i-script"),
+    mkBtn("", "用解析插件把当前文档解析为表格（plugins 目录）", () => toggleParserDock(), "i-plug"),
   );
-  // View toggles are icon-only: they change the shell, not the document.
   const toggles = document.createElement("div");
   toggles.className = "appbar-group";
   toggles.append(
@@ -320,7 +319,7 @@ function layout(): void {
     mkBtn("", "显示 / 隐藏文档信息栏", () => toggleInspector(), "i-info"),
     mkBtn("", "切换主题（浅色 / 暗黑 / 吸血鬼 / 跟随系统）", () => theme.cycle(), "i-theme"),
   );
-  bar.append(appName, primary, appbarSep(), tools, appbarSep(), toggles);
+  bar.append(appName, primary, tools, toggles);
 
   const drag = document.createElement("div");
   drag.className = "titlebar-drag";
@@ -430,12 +429,6 @@ function icon(id: string): SVGSVGElement {
   use.setAttribute("href", "#" + id);
   svg.append(use);
   return svg;
-}
-
-function appbarSep(): HTMLElement {
-  const d = document.createElement("div");
-  d.className = "appbar-sep";
-  return d;
 }
 
 function mkBtn(
@@ -623,6 +616,9 @@ async function fillGitSection(path: string): Promise<void> {
   const box = document.getElementById("insp-git");
   if (!box || box.dataset.path !== path || token !== gitProbeToken) return;
   box.textContent = "";
+  // Drop the placeholder's `.insp-empty` padding before painting rows, or the
+  // whole Git block inherits its 24px/12px inset.
+  box.className = "";
   if (!info) return;
   if (info.unavailable) {
     box.textContent = info.unavailable;
