@@ -36,6 +36,12 @@ pub enum CoreError {
     #[error("{0} characters are unmappable in the target encoding")]
     Unmappable(usize),
 
+    /// The target exists but the OS refused the write: read-only attribute or
+    /// missing permissions. Distinct from [`CoreError::Locked`] (another process
+    /// holding the file) so the UI can tell the two causes apart (E23).
+    #[error("permission denied: target file is read-only or not writable")]
+    PermissionDenied,
+
     #[error("target file is locked by another process")]
     Locked,
 }

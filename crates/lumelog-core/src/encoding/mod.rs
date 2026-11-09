@@ -157,18 +157,25 @@ pub fn detect(head: &[u8]) -> EncodingLabel {
     let (enc, plausible) = det.guess_assess(Some(b"cn"), true);
     if plausible {
         if let Some(label) = label_from_encoding(enc) {
-            // The `cn` hint pushes double-byte EUC families toward GBK: a 1KB
-            // Korean/Japanese sample already reads as plausible GBK. Re-ask
-            // WITHOUT the hint and accept only the verdicts that pass cannot
-            // produce for real Chinese text (probed: GBK/GB18030 samples stay
-            // GBK without a hint). Everything else keeps the hinted answer.
+            // The `cn` hint pushes double-byte CJK families toward GBK: a 1KB
+            // Traditional-Chinese/Japanese sample already reads as plausible GBK.
+            // Re-ask WITHOUT the hint and accept only the verdicts that the hint
+            // cannot produce for real Chinese text (probed: GBK/GB18030 samples
+            // stay GBK/GB18030 without a hint). Everything else keeps the hinted
+            // answer.
             if matches!(label, EncodingLabel::Gbk | EncodingLabel::Gb18030) {
                 let mut unbiased = chardetng::EncodingDetector::new();
                 unbiased.feed(head, true);
                 let (enc2, plausible2) = unbiased.guess_assess(None, true);
                 if plausible2 {
                     if let Some(retry) = label_from_encoding(enc2) {
-                        if matches!(retry, EncodingLabel::EucJp | EncodingLabel::EucKr) {
+                        if matches!(
+                            retry,
+                            EncodingLabel::EucJp
+                                | EncodingLabel::EucKr
+                                | EncodingLabel::Big5
+                                | EncodingLabel::ShiftJis
+                        ) {
                             return retry;
                         }
                     }
@@ -540,6 +547,55 @@ mod tests {
         let text = line.repeat(20);
         let raw = encoding_rs::EUC_JP.encode(&text).0;
         assert_eq!(detect(&raw), EncodingLabel::EucJp);
+    }
+
+    #[test]
+    fn detect_big5_sample() {
+        // The `cn` hint reads this as GBK; the unbiased retry must report Big5.
+        let line = "繁體中文測試日誌 錯誤 溫度感測器異常 2026-10-30\n";
+        let text = line.repeat(20);
+        let raw = encoding_rs::BIG5.encode(&text).0;
+        assert_eq!(detect(&raw), EncodingLabel::Big5);
+    }
+
+    #[test]
+    fn detect_shiftjis_sample() {
+        // Same story as Big5: hinted GBK, unbiased retry restores Shift-JIS.
+        let line = "システム起動ログ 温度センサー値を記録しました 2026-10-30\n";
+        let text = line.repeat(20);
+        let raw = encoding_rs::SHIFT_JIS.encode(&text).0;
+        assert_eq!(detect(&raw), EncodingLabel::ShiftJis);
+    }
+
+    #[test]
+    fn detect_gbk_not_mistaken_for_big5_or_shiftjis() {
+        // Regression guard for the Big5/Shift-JIS retry: genuine Simplified-
+        // Chinese GBK text (E02's fixture) must keep its Chinese label.
+        let text = "动力系统控制台台架测试\n错误 记录: 传感器异常\n";
+        let raw = encoding_rs::GBK.encode(text).0;
+        assert!(
+            matches!(
+                detect(&raw),
+                EncodingLabel::Gbk | EncodingLabel::Gb18030
+            ),
+            "genuine GBK must not be retried into Big5/Shift-JIS, got {:?}",
+            detect(&raw)
+        );
+    }
+
+    #[test]
+    fn detect_gb18030_four_byte_sample_stays_chinese() {
+        // E06's fixture uses a GB18030-only four-byte character (U+20000).
+        let text = "扩展字符 𠀀 测试\n";
+        let raw = encoding_rs::GB18030.encode(text).0;
+        assert!(
+            matches!(
+                detect(&raw),
+                EncodingLabel::Gbk | EncodingLabel::Gb18030
+            ),
+            "GB18030 sample must stay Chinese, got {:?}",
+            detect(&raw)
+        );
     }
 
     #[test]

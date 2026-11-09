@@ -222,8 +222,11 @@ fn atomic_write(target: &Path, bytes: &[u8]) -> Result<(), CoreError> {
         }
         Err(e) => {
             let _ = fs::remove_file(&tmp);
-            if is_locked(&e) {
+            if is_locked(target, &e) {
                 return Err(CoreError::Locked);
+            }
+            if is_permission_denied(&e) {
+                return Err(CoreError::PermissionDenied);
             }
             Err(CoreError::Io(e))
         }
@@ -268,23 +271,41 @@ fn temp_path(target: &Path) -> PathBuf {
     target.with_file_name(format!(".{stem}.{}.{}.lumelogtmp", std::process::id(), seq))
 }
 
-/// A rename failure meaning "the destination is held by another process", so the
-/// UI should suggest saving elsewhere. This downgrade is Windows-specific: a
-/// rename over a file another handle has open fails with ERROR_ACCESS_DENIED (5)
-/// or ERROR_SHARING_VIOLATION (32). On unix a `PermissionDenied` is a genuine
-/// permissions problem (read-only / unwritable dir), not a lock, so it stays an
-/// `Io` error rather than misleading the user with "file is in use".
-fn is_locked(e: &std::io::Error) -> bool {
+/// Whether a failed rename means "the destination is held by another process",
+/// so the UI should suggest saving elsewhere. On Windows a rename over a file
+/// another handle has open fails with ERROR_ACCESS_DENIED (5) or
+/// ERROR_SHARING_VIOLATION (32). ERROR_ACCESS_DENIED is ambiguous: it also
+/// covers a read-only target (E23), so only call it a lock when the target is
+/// not read-only. On unix a `PermissionDenied` is a genuine permissions problem
+/// (read-only file / unwritable dir), never a lock.
+fn is_locked(target: &Path, e: &std::io::Error) -> bool {
     #[cfg(windows)]
     {
-        e.kind() == std::io::ErrorKind::PermissionDenied
-            || matches!(e.raw_os_error(), Some(5) | Some(32))
+        match e.raw_os_error() {
+            Some(32) => true,
+            Some(5) => !target_is_readonly(target),
+            _ => false,
+        }
     }
     #[cfg(not(windows))]
     {
-        let _ = e;
+        let _ = (target, e);
         false
     }
+}
+
+/// Whether a failed write is an access/permission problem rather than a lock.
+fn is_permission_denied(e: &std::io::Error) -> bool {
+    e.kind() == std::io::ErrorKind::PermissionDenied || matches!(e.raw_os_error(), Some(5))
+}
+
+/// True when the target carries the Windows read-only attribute (or otherwise
+/// reports read-only permissions). Missing metadata is treated as "not
+/// read-only" so a vanished target keeps the lock-or-io classification.
+fn target_is_readonly(path: &Path) -> bool {
+    fs::metadata(path)
+        .map(|m| m.permissions().readonly())
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -507,6 +528,41 @@ mod tests {
         assert!(saved.starts_with(&[0xEF, 0xBB, 0xBF]), "leading BOM written");
         let reopened = DocFile::open(&p, 1 << 20).unwrap();
         assert_eq!(reopened.encoding(), EncodingLabel::Utf8Bom, "BOM re-detected");
+        fs::remove_file(&p).ok();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn readonly_target_reports_permission_not_lock() {
+        // E23: a read-only target makes the rename fail with ERROR_ACCESS_DENIED
+        // (5), which used to be reported as "locked by another process". The
+        // read-only attribute is a permission problem, not a lock.
+        let p = write_tmp(b"seed\n");
+        let mut doc = DocFile::open(&p, 1 << 20).unwrap();
+        let meta = doc.disk_meta();
+        let mut perms = fs::metadata(&p).unwrap().permissions();
+        perms.set_readonly(true);
+        fs::set_permissions(&p, perms).unwrap();
+
+        let before = fs::read(&p).unwrap();
+        let err = save_text(
+            &mut doc,
+            "new\n",
+            &opts(None, EncodingLabel::Utf8, EolStyle::Lf),
+            meta,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, CoreError::PermissionDenied),
+            "read-only target must not be reported as Locked, got {err:?}"
+        );
+        assert_eq!(fs::read(&p).unwrap(), before, "target left untouched");
+
+        // Remove the attribute again so cleanup can delete the file.
+        let mut perms = fs::metadata(&p).unwrap().permissions();
+        #[allow(clippy::permissions_set_readonly_false)]
+        perms.set_readonly(false);
+        fs::set_permissions(&p, perms).unwrap();
         fs::remove_file(&p).ok();
     }
 
