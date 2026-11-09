@@ -1276,9 +1276,53 @@ export interface GitInfo {
   unavailable?: string;
 }
 
+export interface GitFileChange {
+  path: string;
+  /** "new" | "modified" | "deleted" | "renamed" | "untracked" | "conflicted" */
+  kind: string;
+  staged: boolean;
+}
+
+export interface GitCommit {
+  id: string;
+  id_short: string;
+  summary: string;
+  author_name: string;
+  author_email: string;
+  /** Unix seconds. */
+  time: number;
+  parents: string[];
+}
+
+export interface GitCommitFile {
+  path: string;
+  /** "A" | "M" | "D" | "R" | "C" | "T" */
+  kind: string;
+}
+
 /** Probe the git repo around `path` (read-only, built-in libgit2). */
 export function gitProbe(path: string): Promise<GitInfo> {
   return call<GitInfo>("git_probe", { path });
+}
+
+/** Whole-repo change list for the inspector Git section. */
+export function gitStatus(root: string): Promise<GitFileChange[]> {
+  return call<GitFileChange[]>("git_status", { root });
+}
+
+/** Recent commits on HEAD, newest first. */
+export function gitLog(root: string, limit = 30): Promise<GitCommit[]> {
+  return call<GitCommit[]>("git_log", { root, limit });
+}
+
+/** Files touched by one commit (vs its first parent). */
+export function gitCommitFiles(root: string, id: string): Promise<GitCommitFile[]> {
+  return call<GitCommitFile[]>("git_commit_files", { root, id });
+}
+
+/** Unified diff for one repo-relative file; `against` = "HEAD" or a commit id. */
+export function gitDiffFile(root: string, file: string, against: string): Promise<string> {
+  return call<string>("git_diff_file", { root, file, against });
 }
 
 /** `git init` in the directory containing `path` (UI confirms first). */
@@ -1294,6 +1338,16 @@ export function gitCommit(
   email?: string,
 ): Promise<string> {
   return call<string>("git_commit", { path, message, name, email });
+}
+
+/** Stage every change (`git add -A`) and commit — the panel's commit form. */
+export function gitCommitAll(
+  root: string,
+  message: string,
+  name?: string,
+  email?: string,
+): Promise<string> {
+  return call<string>("git_commit_all", { root, message, name, email });
 }
 
 // ---- launch args / single instance (Plan 43) -----------------------------------

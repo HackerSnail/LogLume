@@ -83,9 +83,6 @@ import {
   recentList,
   recentClear,
   viewerPdfBytes,
-  gitInit,
-  gitProbe,
-  gitCommit,
   launchArgs,
   fifRun,
   fifCancel,
@@ -116,6 +113,7 @@ import { Statusbar } from "./statusbar";
 import { extOf } from "./encoding-menu";
 import { autoModeId, registerPluginLanguages, syntaxModes, type ModeId } from "./language";
 import { initTheme } from "./theme";
+import { mountGitPanel } from "./gitpanel";
 import {
   makeResizable,
   loadFlag,
@@ -750,163 +748,12 @@ function updateInspector(docId: number | null): void {
   void fillGitSection(ds.path);
 }
 
-/** Async half of the inspector Git section (Plan 34): probe then fill.
- *  `updateInspector` is sync, so the subprocess result lands afterwards;
- *  the dataset guard drops results for a doc that is no longer shown. */
-async function fillGitSection(path: string): Promise<void> {
-  const token = ++gitProbeToken;
-  let info;
-  try {
-    info = await gitProbe(path);
-  } catch (err) {
-    info = null;
-    reportError(err);
-  }
+/** Inspector Git section (NoteLume parity) — `mountGitPanel` owns the async
+ *  probe, change list, history, commit form and diff preview. */
+function fillGitSection(path: string): void {
   const box = document.getElementById("insp-git");
-  if (!box || box.dataset.path !== path || token !== gitProbeToken) return;
-  box.textContent = "";
-  // Drop the placeholder's `.insp-empty` padding before painting rows, or the
-  // whole Git block inherits its 24px/12px inset.
-  box.className = "";
-  if (!info) return;
-  if (info.unavailable) {
-    box.textContent = info.unavailable;
-    return;
-  }
-  if (!info.repo) {
-    const msg = document.createElement("div");
-    msg.className = "insp-empty";
-    msg.textContent = "未检测到 Git 仓库";
-    const btn = document.createElement("button");
-    btn.className = "insp-git-init";
-    btn.textContent = "初始化仓库";
-    btn.addEventListener("click", () => void initRepoFor(path));
-    box.append(msg, btn);
-    return;
-  }
-  const rows: [string, string][] = [
-    ["仓库根", info.root ?? "—"],
-    ["分支", info.branch ?? "—"],
-    ["文件状态", info.file_status ?? "未改动"],
-  ];
-  if (info.last_commit) {
-    rows.push([
-      "最近提交",
-      `${info.last_commit.hash} ${info.last_commit.subject}（${formatSavedAt(info.last_commit.time * 1000)}）`,
-    ]);
-  } else {
-    rows.push(["最近提交", "（尚无提交）"]);
-  }
-  for (const [key, value] of rows) {
-    const row = document.createElement("div");
-    row.className = "insp-row";
-    const k = document.createElement("span");
-    k.className = "insp-key";
-    k.textContent = key;
-    const v = document.createElement("span");
-    v.className = "insp-val";
-    v.textContent = value;
-    v.title = value;
-    row.append(k, v);
-    box.append(row);
-  }
-  // 有改动才给提交入口；干净文件没有可提交的内容
-  if (info.file_status) {
-    box.append(commitButton(path, info.identity));
-  }
-}
-
-function commitButton(path: string, identity?: { name: string; email: string }): HTMLElement {
-  const btn = document.createElement("button");
-  btn.className = "insp-git-init";
-  btn.textContent = "暂存并提交…";
-  btn.addEventListener("click", () => openCommitDialog(path, identity));
-  return btn;
-}
-
-/** Minimal commit dialog (Plan 35): message + optional author fields. */
-function openCommitDialog(path: string, identity?: { name: string; email: string }): void {
-  if (document.getElementById("commit-dialog")) return;
-  const overlay = document.createElement("div");
-  overlay.id = "commit-dialog";
-  overlay.className = "palette-overlay";
-  const box = document.createElement("div");
-  box.className = "palette-box commit-box";
-  const title = document.createElement("div");
-  title.className = "panel-title";
-  title.textContent = "暂存并提交当前文件";
-  const msg = document.createElement("textarea");
-  msg.className = "commit-msg";
-  msg.placeholder = "提交信息（必填）";
-  const name = document.createElement("input");
-  name.type = "text";
-  name.className = "commit-field";
-  name.placeholder = "作者姓名（留空用 git 配置）";
-  name.value = identity?.name ?? "";
-  const email = document.createElement("input");
-  email.type = "text";
-  email.className = "commit-field";
-  email.placeholder = "作者邮箱（留空用 git 配置）";
-  email.value = identity?.email ?? "";
-  const row = document.createElement("div");
-  row.className = "commit-actions";
-  const cancel = document.createElement("button");
-  cancel.className = "insp-git-init";
-  cancel.textContent = "取消";
-  const submit = document.createElement("button");
-  submit.className = "insp-git-init";
-  submit.textContent = "提交";
-  row.append(cancel, submit);
-  box.append(title, msg, name, email, row);
-  overlay.append(box);
-  document.getElementById("app")?.append(overlay);
-  const close = (): void => overlay.remove();
-  cancel.addEventListener("click", close);
-  overlay.addEventListener("mousedown", (e) => {
-    if (e.target === overlay) close();
-  });
-  submit.addEventListener("click", () => {
-    const message = msg.value.trim();
-    if (!message) {
-      toastMsg("提交信息不能为空");
-      return;
-    }
-    const n = name.value.trim();
-    const m = email.value.trim();
-    submit.disabled = true;
-    void gitCommit(path, message, n || undefined, m || undefined)
-      .then((hash) => {
-        close();
-        toastMsg(`已提交 ${hash}`);
-        gitProbeToken++;
-        void fillGitSection(path);
-      })
-      .catch((err) => {
-        submit.disabled = false;
-        reportError(err);
-      });
-  });
-  msg.focus();
-}
-
-let gitProbeToken = 0;
-
-async function initRepoFor(path: string): Promise<void> {
-  const dir = path.replace(/[\\/][^\\/]*$/, "") || path;
-  const go = await ask(`将在 ${dir} 执行 git init，是否继续？`, {
-    title: "初始化仓库",
-    kind: "info",
-    okLabel: "初始化",
-  });
-  if (!go) return;
-  try {
-    const msg = await gitInit(path);
-    toastMsg(`已初始化仓库：${msg.split(":").pop()?.trim() || dir}`);
-    gitProbeToken++; // invalidate any in-flight probe, then refresh
-    await fillGitSection(path);
-  } catch (err) {
-    reportError(err);
-  }
+  if (!box) return;
+  mountGitPanel(box, path, { toast: toastMsg, error: reportError });
 }
 
 function inspSection(title: string): HTMLElement {
