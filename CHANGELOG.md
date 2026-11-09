@@ -9,8 +9,8 @@
 ### Task. 通用动作留在标题栏，工控功能归入一个下拉
 **Files:** Modify `app/frontend/src/main.ts`（新增 `MenuRow`/`toggleAppMenu`/`closeAppMenu`/`industrialRows`：单个浮层菜单，`role=menu/menuitem`，↑↓/Home/End/Enter/Esc 键盘可达，点外部或窗口 resize 关闭，Esc 回焦触发器；标题栏改为 打开 / 查询 / 查看 / 脚本 / 工控菜单，删除 CAN 与 MF4 的独立图标按钮；脚本保留直连按钮，理由是通用逐行变换、非工控专属且高频；菜单末项「全部命令…」带 `Ctrl+Shift+P` hint 并调用 `openPalette`）；Modify `app/frontend/src/styles.css`（`--z-menu:60` 与新规则 `.app-menu/.menu-item/.menu-hint/.menu-sep`、触发器 `aria-expanded` 高亮）；Modify `app/frontend/index.html`（sprite 新增 `i-menu`）。
 **Why:** 标题栏只放跨场景能力（打开、查询、查看、脚本），工控三组（报文 / 测量 / 插件解析）收进一个图标菜单；菜单只是新增入口，`buildCommands()` 未改，命令面板原有全部命令仍在。菜单项内含子入口（BLF 打开、DBC 导入、CSV/JSONL 导出、重载插件），不再另起一行。
-**验证:** `npm test` 231 pass（30 文件）；`npm run build`（`tsc --noEmit` + vite）通过；实机 dev 实例待重启后确认菜单开合、键盘与点击外部行为。
-**未验:** 菜单在真实 Tauri 窗口里的定位/遮挡需重启后人工过；BLF/DBC/导出项点击依赖文件对话框，仅按原函数路径接入，未逐一实机点过。
+**验证:** `npm test` 231 pass（30 文件）；`npm run build`（`tsc --noEmit` + vite）通过；CDP 连真实窗口（`:9222`）：菜单在触发器下方 4px 展开（232×322）、条目/分隔线/hint 正常，↑↓ 移动、Esc 关闭并回焦触发器、点空白关闭，命令面板仍为 57 条且含「报文面板 / 解析当前文档为报文 / 导入 DBC / 测量数据」。
+**未验:** BLF / DBC / 导出项点击依赖系统文件对话框，仅按原函数路径接入，未逐一实机点过；菜单在窗口高度极窄时的位置只做了视口内 clamp，未实测。
 
 ## 2026-11-09 — 完全对齐 NoteLume 真实样式（feat/ui-notelume，第 2 版）
 
