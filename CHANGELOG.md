@@ -2,6 +2,17 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-09 — AI 自定义模型（feat/ai-custom-model，未合 main）
+
+**依据：** NoteLume `src/ai-settings.js` 的预设 + `custom` 与 `customMemory`（切到预设再切回「自定义」时恢复已填地址/模型；`activePresetId` 只是高亮，不做地址回退），以及 `validateAiConfig` 的「缺少协议头 / 地址非法 / 模型为空」分档报错。LogLume 沿用既有的 `[ai]` 配置（`base_url`/`model`），不新增 schema。
+
+### Task. 设置弹层的「自定义」项与行内校验
+**Files:** Modify `app/frontend/src/aisettings.ts`（预设表加 `id`；新增「自定义」按钮与选中态；`customMemory` 保存切走时的地址/模型；`activePresetId` 只决定高亮；`baseUrlProblem`/`hostnameOf` 做协议头、空白、`new URL`、主机名检查；`validate` 改为返回字段 + 文案并写入 `.ai-err`；模型框始终可手填，拉取失败的行内提示明确「可直接手填模型名」）；Modify `app/frontend/src/styles.css`（`.ai-preset.active` 复用 `--accent`/`--accent-soft`，`.ai-err` 复用 `--danger`，未新增 token）；Modify `app/src-tauri/src/ai.rs`（`validate_config` 区分「缺少协议头」与「有协议但无主机名」，补单测）；Add `app/frontend/src/aisettings.test.ts`（5 例：自定义并列、切换保值、回显不含 Key、三类行内错误、拉取失败仍可手填）。
+**与 NoteLume 一致:** 「自定义」与预设同排、当前地址不在预设里就高亮自定义；切走再切回保留已填值；输入框始终可手填模型名；地址/模型分字段报错。
+**有意不同:** 没有按 host 分格的 Key 存储（LogLume 仍只有一个只写 Key）；未做 Ollama 探测/拉取与自动加载模型列表；模型候选仍用 `datalist`，测试连接按钮沿用既有「先保存再联网」流程。
+**验证:** `npm test` 276 passed / 35 文件；`npm run build`（`tsc --noEmit` + vite）通过；`cargo test -p lumelog-app ai::tests` 17 passed。真实窗口（CDP `:9222` + DPI 感知截图）：预设行含 6 项（含自定义），保存 `https://gw.example.com/v1` + `my-model` 后关闭重开原样回显且「自定义」高亮、Key 框为空；缺协议头/`https://`/空模型分别显示对应行内红字并把焦点移到该字段，未调用 `ai_config_set`；验证写入的临时 `config.toml` 已删除。
+**未做:** 未接真实自定义服务商做联网对话（无 Key）；未做自定义项的独立命名（配置里只留 base_url/model）。
+
 ## 2026-11-09 — AI 助手移植（feat/ai-assist，未合 main）
 
 **依据：** NoteLume `src-tauri/src/ai.rs`（SSE 流）、`src/ai-settings.js`（按 host:port 明文存 key）、`src/ai-tasks.js`（提示词/上下文上限）、`src/ai-inline.js`（选区悬浮条）、`src/ai-panel.js`（对话/历史）。LogLume 按「设置与凭据 → 基础对话/流式 → 日志场景」三块落地；默认关闭，用户显式开启并填写接口后才联网。

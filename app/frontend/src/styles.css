@@ -3242,6 +3242,20 @@ html.has-custom-titlebar .win-btns {
   background: var(--hover);
   border-color: var(--accent);
 }
+.ai-preset.active,
+.ai-preset.active:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.ai-err {
+  font-size: var(--fs-11, 11px);
+  color: var(--danger);
+  line-height: 1.4;
+}
+.ai-err:empty {
+  display: none;
+}
 .ai-sub {
   font-size: var(--fs-11, 11px);
   color: var(--text-2);
