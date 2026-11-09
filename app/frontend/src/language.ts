@@ -168,6 +168,9 @@ export const AVAILABLE_MODES = [
   "nginx",
   "webidl",
   "properties",
+  "astro",
+  "hcl",
+  "zig",
   "yaml",
   "toml",
   "shell",
@@ -252,6 +255,9 @@ export const MODE_LABELS: Record<ModeChoice, string> = {
   nginx: "Nginx",
   webidl: "WebIDL",
   properties: "Properties",
+  astro: "Astro",
+  hcl: "HCL / Terraform",
+  zig: "Zig",
   yaml: "YAML",
   toml: "TOML",
   shell: "Shell",
@@ -400,6 +406,12 @@ const EXT_MODES: Record<string, ModeChoice> = {
   nginx: "nginx",
   webidl: "webidl",
   properties: "properties",
+  astro: "astro",
+  hcl: "hcl",
+  tf: "hcl",
+  tfvars: "hcl",
+  zig: "zig",
+  zon: "zig",
   jsonc: "json",
   json5: "json",
   yaml: "yaml",
@@ -854,6 +866,12 @@ async function loadLanguage(mode: ModeChoice): Promise<LanguageSupport | null> {
         ),
       );
     }
+    case "astro":
+      return astroMode();
+    case "hcl":
+      return hclMode();
+    case "zig":
+      return zigMode();
     case "yaml":
       return streamMode(import("@codemirror/legacy-modes/mode/yaml"), "yaml");
     case "toml":
@@ -892,4 +910,170 @@ async function clikeMode(mode: ModeChoice): Promise<LanguageSupport> {
     CLIKE_EXPORTS[mode]!
   ];
   return new LanguageSupport(StreamLanguage.define(spec));
+}
+/** Astro: `---` frontmatter (TS/JS), HTML template, `{}` expressions. */
+async function astroMode(): Promise<LanguageSupport> {
+  const { simpleMode } = await import("@codemirror/legacy-modes/mode/simple-mode");
+  const jsKeywords =
+    "abstract|as|async|await|break|case|catch|class|const|continue|debugger|declare|default|delete|do|else|enum|export|extends|false|finally|for|from|function|get|if|implements|import|in|instanceof|interface|let|new|null|of|private|protected|public|readonly|return|satisfies|set|static|super|switch|this|throw|true|try|type|typeof|undefined|var|void|while|with|yield";
+  const keywordRe = new RegExp(`\\b(?:${jsKeywords})\\b`);
+  const jsRules = (popBrace: boolean) => [
+    { regex: /\/\/[^\n]*/, token: "comment" },
+    { regex: /\/\*/, token: "comment", push: "blockComment" },
+    { regex: /`(?:[^`\\]|\\.)*`/, token: "string" },
+    { regex: /"(?:[^"\\]|\\.)*"/, token: "string" },
+    { regex: /'(?:[^'\\]|\\.)*'/, token: "string" },
+    { regex: keywordRe, token: "keyword" },
+    { regex: /\b\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?\b/, token: "number" },
+    { regex: /{/, token: "punctuation", push: "expr" },
+    ...(popBrace
+      ? [{ regex: /}/, token: "punctuation", pop: true }]
+      : [{ regex: /}/, token: "punctuation" }]),
+    { regex: /[{}[\]()]/, token: "punctuation" },
+    { regex: /\b[A-Za-z_$][\w$]*(?=\s*\()/, token: "variableName" },
+    { regex: /\b[A-Za-z_$][\w$]*/, token: null },
+    { regex: /[+\-*/%<>=!&|^~?:;,.]+/, token: "operator" },
+  ];
+  return new LanguageSupport(
+    StreamLanguage.define(
+      simpleMode({
+        start: [
+          { regex: /^---\s*$/, sol: true, token: "punctuation", push: "frontmatter" },
+          { regex: /<!--/, token: "comment", push: "htmlComment" },
+          { regex: /<\/?[A-Za-z][\w.:-]*/, token: "tag", push: "tag" },
+          { regex: /{/, token: "punctuation", push: "expr" },
+          { regex: /[^<{]+/, token: null },
+          { regex: /</, token: "punctuation" },
+        ],
+        frontmatter: [
+          { regex: /^---\s*$/, sol: true, token: "punctuation", pop: true },
+          ...jsRules(false),
+        ],
+        expr: jsRules(true),
+        tag: [
+          { regex: /\/?>/, token: "punctuation", pop: true },
+          { regex: /[A-Za-z_:][\w:.-]*(?=\s*=)/, token: "attribute" },
+          { regex: /[A-Za-z_:][\w:.-]*/, token: "attribute" },
+          { regex: /=/, token: "operator" },
+          { regex: /"/, token: "string", push: "attrDouble" },
+          { regex: /'/, token: "string", push: "attrSingle" },
+          { regex: /{/, token: "punctuation", push: "expr" },
+          { regex: /\s+/, token: null },
+          { regex: /[^\s>"'{]+/, token: "attribute" },
+        ],
+        attrDouble: [
+          { regex: /[^"]+/, token: "string" },
+          { regex: /"/, token: "string", pop: true },
+        ],
+        attrSingle: [
+          { regex: /[^']+/, token: "string" },
+          { regex: /'/, token: "string", pop: true },
+        ],
+        htmlComment: [
+          { regex: /-->/, token: "comment", pop: true },
+          { regex: /[^-]+/, token: "comment" },
+          { regex: /-/, token: "comment" },
+        ],
+        blockComment: [
+          { regex: /\*\//, token: "comment", pop: true },
+          { regex: /[^*]+/, token: "comment" },
+          { regex: /\*/, token: "comment" },
+        ],
+      }),
+    ),
+  );
+}
+
+/** HCL / Terraform: blocks, labels, `key = value`, strings, `${}` interpolation. */
+async function hclMode(): Promise<LanguageSupport> {
+  const { simpleMode } = await import("@codemirror/legacy-modes/mode/simple-mode");
+  const keywords =
+    "resource|data|variable|output|module|provider|terraform|locals|dynamic|for_each|count|depends_on|lifecycle|provisioner|connection|backend|required_providers|required_version|source|version|content|when|true|false|null|if|for|in|else|endif|endfor";
+  const types = "string|number|bool|list|map|set|tuple|object|any|optional";
+  const builtins =
+    "var|local|module|data|each|count|path|terraform|self|jsonencode|jsondecode|file|templatefile|lookup|merge|concat|length|toset|tolist|tomap|tostring|tonumber|tobool|try|can|coalesce|format|formatlist|join|split|replace|regex|regexall|upper|lower|trim|trimspace|trimprefix|trimsuffix|sensitive|nonsensitive|timestamp|uuid|base64encode|base64decode|cidrsubnet|cidrhost|flatten|distinct|keys|values|zipmap|contains|startswith|endswith";
+  return new LanguageSupport(
+    StreamLanguage.define(
+      simpleMode({
+        start: [
+          { regex: /#[^\n]*/, token: "comment" },
+          { regex: /\/\/[^\n]*/, token: "comment" },
+          { regex: /\/\*/, token: "comment", push: "blockComment" },
+          { regex: /"/, token: "string", push: "double" },
+          { regex: /<<-?[A-Za-z_]\w*/, token: "string", push: "heredoc" },
+          { regex: new RegExp(`\\b(?:${keywords})\\b`), token: "keyword" },
+          { regex: new RegExp(`\\b(?:${types})\\b`), token: "typeName" },
+          { regex: new RegExp(`\\b(?:${builtins})\\b`), token: "variableName" },
+          { regex: /\b[A-Za-z_][\w-]*(?=\s*=)/, token: "propertyName" },
+          { regex: /\b[A-Za-z_][\w-]*/, token: null },
+          { regex: /\b\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?/, token: "number" },
+          { regex: /[{}[\]()]/, token: "punctuation" },
+          { regex: /[=,:.]/, token: "operator" },
+          { regex: /[+\-*/%<>=!&|?]+/, token: "operator" },
+        ],
+        double: [
+          { regex: /[^"\\$]+/, token: "string" },
+          { regex: /\\./, token: "string" },
+          { regex: /\$\{/, token: "string", push: "interp" },
+          { regex: /"/, token: "string", pop: true },
+        ],
+        interp: [
+          { regex: /}/, token: "punctuation", pop: true },
+          { regex: /{/, token: "punctuation", push: "interp" },
+          { regex: /"(?:[^"\\]|\\.)*"/, token: "string" },
+          { regex: new RegExp(`\\b(?:${builtins})\\b`), token: "variableName" },
+          {
+            regex: /\b(?:var|local|module|data|each|count|path|terraform|self|true|false|null|if|for|in)\b/,
+            token: "keyword",
+          },
+          { regex: /\b[A-Za-z_]\w*/, token: null },
+          { regex: /\d[\d_]*(?:\.\d+)?/, token: "number" },
+          { regex: /[{}[\]()]/, token: "punctuation" },
+          { regex: /[=,:.]/, token: "operator" },
+        ],
+        heredoc: [
+          { regex: /^[A-Za-z_]\w*\s*$/, sol: true, token: "string", pop: true },
+          { regex: /[^\n]+/, token: "string" },
+        ],
+        blockComment: [
+          { regex: /\*\//, token: "comment", pop: true },
+          { regex: /[^*]+/, token: "comment" },
+          { regex: /\*/, token: "comment" },
+        ],
+      }),
+    ),
+  );
+}
+
+/** Zig: keywords, primitive types, `@builtins`, error sets, multiline strings. */
+async function zigMode(): Promise<LanguageSupport> {
+  const { simpleMode } = await import("@codemirror/legacy-modes/mode/simple-mode");
+  const keywords =
+    "const|var|fn|pub|export|extern|inline|noinline|comptime|usingnamespace|struct|enum|union|opaque|error|test|if|else|switch|while|for|break|continue|return|defer|errdefer|try|catch|orelse|unreachable|async|await|suspend|resume|nosuspend|asm|volatile|linksection|threadlocal|anytype|anyframe|align|packed|callconv|noalias|and|or|not|undefined|null|true|false";
+  const types =
+    "bool|void|noreturn|type|anyerror|comptime_int|comptime_float|i8|i16|i32|i64|i128|u8|u16|u32|u64|u128|isize|usize|f16|f32|f64|f80|f128|c_char|c_short|c_ushort|c_int|c_uint|c_long|c_ulong|c_longlong|c_ulonglong|c_longdouble";
+  return new LanguageSupport(
+    StreamLanguage.define(
+      simpleMode({
+        start: [
+          { regex: /\/\/[^\n]*/, token: "comment" },
+          { regex: /\\\\[^\n]*/, token: "string" },
+          { regex: /"(?:[^"\\]|\\.)*"/, token: "string" },
+          { regex: /'(?:[^'\\]|\\.)*'/, token: "string" },
+          { regex: /@"[^"]*"/, token: "variableName" },
+          { regex: /@[A-Za-z_]\w*/, token: "variableName" },
+          { regex: /error\{[^}]*\}/, token: "typeName" },
+          { regex: new RegExp(`\\b(?:${keywords})\\b`), token: "keyword" },
+          { regex: new RegExp(`\\b(?:${types})\\b`), token: "typeName" },
+          { regex: /\b0[xX][0-9a-fA-F_]+/, token: "number" },
+          { regex: /\b0[oO][0-7_]+/, token: "number" },
+          { regex: /\b0[bB][01_]+/, token: "number" },
+          { regex: /\b\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?/, token: "number" },
+          { regex: /[{}[\]()]/, token: "punctuation" },
+          { regex: /[+\-*/%<>=!&|^~?:.]+/, token: "operator" },
+          { regex: /\b[A-Za-z_]\w*/, token: null },
+        ],
+      }),
+    ),
+  );
 }

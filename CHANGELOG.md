@@ -2,6 +2,12 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-09 — 自实现 Astro / HCL(Terraform) / Zig 高亮
+
+**Files:** Modify `app/frontend/src/language.ts`（新增 `astro`/`hcl`/`zig` 三个 `simpleMode` 模式：Astro 覆盖 `---` frontmatter、HTML 标签/属性/注释、`{}` 表达式；HCL 覆盖 `resource/data/...`、块标签、`key = value`、字符串与 `${}` 插值、heredoc、注释；Zig 覆盖关键字/基础类型/`@builtin`/error set/多行 `\\` 字符串/数字/注释；`.astro/.hcl/.tf/.tfvars/.zig/.zon` 自动识别）；Modify `app/frontend/src/language.test.ts`（映射与三语言示例）；Modify `app/frontend/src/docKind.ts`（同步非日志）。
+**Why:** npm 上没有可用的 CodeMirror 6 Astro/HCL/Zig 包；用户要求自己实现，因此用 `simpleMode` 写真实 tokenizer，不拿近似语言冒充。
+**验证:** `npx tsc --noEmit` 通过；全量 `npx vitest run` 37 文件 / 289 tests 全绿；`npm ci --dry-run` 通过。
+
 ## 2026-11-09 — 补 Godot 场景/资源高亮（.tscn / .tres / .godot）
 
 **Files:** Modify `app/frontend/src/language.ts`（新增 `godot` 模式：`[gd_scene]`/`[node]`/`[resource]` 等 section、键值、`ExtResource/SubResource`、`Vector2/Color/Transform2D` 等值类型、字符串/数字/布尔/注释；`.tscn/.tres/.godot` 自动识别）；Modify `app/frontend/src/language.test.ts`（映射与 `.tscn` 示例）；Modify `app/frontend/src/docKind.ts`（tscn/tres/godot 同步为非日志）。

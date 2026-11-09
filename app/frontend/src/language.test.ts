@@ -147,6 +147,12 @@ describe("modeIdForExt", () => {
       ["nginx", "nginx"],
       ["webidl", "webidl"],
       ["properties", "properties"],
+      ["astro", "astro"],
+      ["hcl", "hcl"],
+      ["tf", "hcl"],
+      ["tfvars", "hcl"],
+      ["zig", "zig"],
+      ["zon", "zig"],
     ];
     for (const [ext, mode] of cases) expect(modeIdForExt(ext), ext).toBe(mode);
   });
@@ -281,6 +287,9 @@ describe("resolveLanguage", () => {
       ["nginx", "server { listen 80; }"],
       ["webidl", "interface A { attribute long x; };"],
       ["properties", "key=value"],
+      ["astro", '---\nconst title = "Hi";\n---\n<h1>{title}</h1>'],
+      ["hcl", 'resource "aws_instance" "web" {\n  ami = "ami-123"\n  count = 2\n}'],
+      ["zig", 'const std = @import("std");\npub fn main() void {\n    std.debug.print("hi\\n", .{});\n}'],
     ];
     for (const [mode, src] of samples) {
       const lang = await resolveLanguage(mode);
