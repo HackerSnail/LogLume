@@ -2,6 +2,18 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-09 — Git 写操作 / 分支 / 远端 / 冲突补齐（feat/git-commands）
+
+**依据：** NoteLume `src/git-panel.js`（变更行工具、graph 行的 checkout/revert、分支菜单、同步区的 fetch/pull/push 与 ahead/behind、冲突行、merge bar）与 `src-tauri/src/git_builtin.rs`（revert、merge、upstream、checkout safe/force 语义）。
+
+### Task. Rust 侧新增 git2 写命令（17 个 IPC）
+**Files:** Modify `app/src-tauri/src/gitinfo.rs`（`git_stage_path`（删除文件走 `index.remove_path`）、`git_unstage_path`（`reset_default` 到 HEAD，unborn 则移除条目）、`git_discard_path(root, rel, confirmed)`（未确认直接拒绝；untracked/staged-new 删文件并移索引，tracked 写回 HEAD blob）、`git_branches`、`git_checkout_branch(root, name, force)`（默认 safe，冲突时不覆盖并报 `[git_dirty]`；force 仅供 UI 二次确认后）、`git_checkout_commit(root, id, force)`（分离 HEAD 提示写进返回文案）、`git_revert_commit`（脏工作区/中间状态拒绝；冲突则 hard reset 回滚）、`git_remote_status`（ahead/behind、upstream、detached）、`git_fetch`/`git_pull`/`git_push(set_upstream)`（网络命令走 `spawn_blocking`）、`git_merge_state`/`git_merge_commit`/`git_merge_abort`、`git_conflicts`/`git_resolve_conflict(ours|theirs)`；并补 `stage_unstage_discard_roundtrip`、`branches_checkout_safe_and_force`、`checkout_commit_detached_and_revert`、`fetch_push_and_remote_status`（本地 bare 远端）、`conflicts_can_take_a_side_or_abort` 五个测试；Modify `app/src-tauri/src/commands.rs`（透传 17 个命令 + `git_err` 把 `[code]message` 拆成结构化 `IpcError`，既有 `git_*` 也改用同一映射）；Modify `app/src-tauri/src/lib.rs`（注册全部新命令）。
+**Why:** 之前面板对 NoteLume 的写能力只能「说明缺失」。这些操作都能用内置 libgit2 完成；凭据只走系统 git 的 `credential.helper` 或 SSH agent，取不到时回调明确报错（`[auth]`），没有任何硬编码 token，也不会静默失败。丢弃文件改动在前后端各设一道闸：UI 必须 `ask` 确认，命令必须收到 `confirmed=true`。
+**边界处理:** 路径拒绝绝对路径与 `..`；safe checkout 失败原样保留本地改动并给出 `[git_dirty]` 说明，force 路径只在用户二次确认后调用；分离 HEAD 下 pull/push 直接报 `[git_detached]`；无上游 push 报 `[no_upstream]`，UI 再询问是否首次推送并建立上游；快进/合并被本地改动阻止时报 `[git_dirty]`；合并冲突写入 `MERGE_HEAD` 并在 UI 切换成 merge bar，未解决冲突时 `git_merge_commit` 拒绝；revert 冲突整体回滚；换行差异不参与测试比较（Windows checkout 应用 EOL 过滤）。
+**验证:** `cargo test`（158 pass / 0 fail，含新增 5 例）；`cargo check --workspace` 通过；`npm test` 237 pass（31 文件，gitpanel 由 4 例增至 6 例）；`npm run build`（`tsc --noEmit` + vite）通过。
+**未实现（不做假按钮）:** 新建分支、添加/编辑远端、冲突文本的「编辑」跳转、`--force-with-lease` 推送。新建分支与远端编辑需要 NoteLume 那样的文本 prompt，LogLume 目前只有 `ask` 确认框，没有输入对话框；冲突「编辑」需要把文件交给编辑器打开，gitpanel 尚未拿到 open-file 钩子；force push 出于安全不提供。
+**未验:** 真实 GitHub/Gitee 远端的 fetch/pull/push 认证路径（测试只覆盖本地裸仓库；`credential.helper` 分支未在真实网络触发）；真实窗口的冲突/合并 UI 尚未用 CDP 截图确认（由 jsdom 用例覆盖渲染与调用）。
+
 ## 2026-11-09 — 检查器 Git 小节按 NoteLume 重做（feat/git-inspector）
 
 **依据：** NoteLume `src/git-panel.js` 的 `createGitPanel` / `renderHead` / `renderChanges` / `renderGraph` / `showDiff` / `showCommit`，以及 `src/style.css:4522-5080` 的 `.nl-git-*` 数值。NoteLume 的 Git 不是「几行属性」，而是一块 280px 宽、可折叠、带图历史与 diff 预览的面板：head（分支 + `N 项改动/工作树干净` + 刷新）／30px 提交框（textarea 自动增高 ≤160、Ctrl+Enter、accent 提交按钮）／「变更」折叠列表（24px 行、16px `M/N/D/R/?/C` 徽标、kind+path 的 diff 标题）／「图形」折叠历史（14px 泳道 SVG、HEAD 分支 pill、作者在右）／复用的 diff 盒（11px mono、`+`/`-`/`@@`/文件头着色、320px 上限）／提交详情复用同一 diff 盒（提交/摘要/作者/时间/变更文件）。空态分别是「未检测到 Git 仓库 + 初始化仓库」、`没有改动`、`尚无提交`、`无差异`；读取失败整块换成「读取 Git 状态失败：…」；刷新时机为打开面板、刷新按钮、init/commit 后。

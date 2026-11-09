@@ -3,7 +3,13 @@
 // commit-detail blocks). IPC is mocked at the module boundary; the real git2
 // paths are covered by `gitinfo.rs`'s `status_log_diff_and_commit_all` test.
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { GitCommit, GitFileChange, GitInfo } from "./ipc";
+import type {
+  GitBranchInfo,
+  GitCommit,
+  GitFileChange,
+  GitInfo,
+  GitRemoteStatus,
+} from "./ipc";
 
 const probe = vi.fn<(path: string) => Promise<GitInfo>>();
 const status = vi.fn<(root: string) => Promise<GitFileChange[]>>();
@@ -13,12 +19,29 @@ const commitFiles = vi.fn<(root: string, id: string) => Promise<{ path: string; 
 const diffFile = vi.fn<(root: string, file: string, against: string) => Promise<string>>();
 const init = vi.fn<(path: string) => Promise<void>>();
 const ask = vi.fn<(msg: string, opts?: unknown) => Promise<boolean>>();
+const mergeState = vi.fn<(root: string) => Promise<boolean>>();
+const remoteStatus = vi.fn<(root: string) => Promise<GitRemoteStatus>>();
+const branches = vi.fn<(root: string) => Promise<GitBranchInfo[]>>();
+const checkoutBranch = vi.fn<(root: string, name: string, force?: boolean) => Promise<string>>();
+const checkoutCommit = vi.fn<(root: string, id: string, force?: boolean) => Promise<string>>();
+const revertCommit = vi.fn<(root: string, id: string) => Promise<string>>();
+const stagePath = vi.fn<(root: string, path: string) => Promise<void>>();
+const unstagePath = vi.fn<(root: string, path: string) => Promise<void>>();
+const discardPath = vi.fn<(root: string, path: string, confirmed?: boolean) => Promise<void>>();
+const resolveConflict = vi.fn<(root: string, path: string, side: string) => Promise<void>>();
+const fetchRemote = vi.fn<(root: string) => Promise<string>>();
+const pullRemote = vi.fn<(root: string) => Promise<{ status: string; message: string }>>();
+const pushRemote = vi.fn<(root: string, setUpstream?: boolean) => Promise<string>>();
+const mergeCommit = vi.fn<(root: string, msg: string) => Promise<string>>();
+const mergeAbort = vi.fn<(root: string) => Promise<void>>();
 
 class FakeIpcError extends Error {
   zh: string;
-  constructor(zh: string) {
+  payload: { code?: string };
+  constructor(zh: string, code?: string) {
     super(zh);
     this.zh = zh;
+    this.payload = { code };
   }
 }
 
@@ -30,6 +53,21 @@ vi.mock("./ipc", () => ({
   gitCommitFiles: (r: string, i: string) => commitFiles(r, i),
   gitDiffFile: (r: string, f: string, a: string) => diffFile(r, f, a),
   gitInit: (p: string) => init(p),
+  gitMergeState: (r: string) => mergeState(r),
+  gitRemoteStatus: (r: string) => remoteStatus(r),
+  gitBranches: (r: string) => branches(r),
+  gitCheckoutBranch: (r: string, n: string, f?: boolean) => checkoutBranch(r, n, f),
+  gitCheckoutCommit: (r: string, i: string, f?: boolean) => checkoutCommit(r, i, f),
+  gitRevertCommit: (r: string, i: string) => revertCommit(r, i),
+  gitStagePath: (r: string, p: string) => stagePath(r, p),
+  gitUnstagePath: (r: string, p: string) => unstagePath(r, p),
+  gitDiscardPath: (r: string, p: string, c?: boolean) => discardPath(r, p, c),
+  gitResolveConflict: (r: string, p: string, s: string) => resolveConflict(r, p, s),
+  gitFetch: (r: string) => fetchRemote(r),
+  gitPull: (r: string) => pullRemote(r),
+  gitPush: (r: string, u?: boolean) => pushRemote(r, u),
+  gitMergeCommit: (r: string, m: string) => mergeCommit(r, m),
+  gitMergeAbort: (r: string) => mergeAbort(r),
   IpcError: FakeIpcError,
 }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: (m: string, o?: unknown) => ask(m, o) }));
@@ -87,6 +125,28 @@ beforeEach(() => {
   localStorage.clear();
   document.body.textContent = "";
   ask.mockResolvedValue(true);
+  mergeState.mockResolvedValue(false);
+  remoteStatus.mockResolvedValue({
+    has_remote: true,
+    remote: "origin",
+    branch: "main",
+    detached: false,
+    has_upstream: true,
+    upstream: "origin/main",
+    ahead: 0,
+    behind: 0,
+  });
+  branches.mockResolvedValue([]);
+  checkoutBranch.mockResolvedValue("main");
+  stagePath.mockResolvedValue(undefined);
+  unstagePath.mockResolvedValue(undefined);
+  discardPath.mockResolvedValue(undefined);
+  resolveConflict.mockResolvedValue(undefined);
+  fetchRemote.mockResolvedValue("已从 origin 获取最新引用");
+  pullRemote.mockResolvedValue({ status: "up_to_date", message: "已是最新（origin/main）" });
+  pushRemote.mockResolvedValue("已推送 main → origin/main");
+  mergeCommit.mockResolvedValue("abc1234");
+  mergeAbort.mockResolvedValue(undefined);
 });
 
 describe("Git panel parity", () => {
@@ -191,6 +251,102 @@ describe("Git panel parity", () => {
     expect(toast).toHaveBeenCalledWith("已提交 deadbee");
     expect(box.querySelector<HTMLTextAreaElement>(".git-commit-input")?.value).toBe("");
     expect(box.querySelector(".git-count")?.textContent).toBe("1 项改动");
+  });
+
+  it("stages, discards after confirmation, shows ahead/behind and switches branch", async () => {
+    probe.mockResolvedValue(repoInfo());
+    status.mockResolvedValue([change("a.log", "modified"), change("b.log", "untracked")]);
+    log.mockResolvedValue([]);
+    remoteStatus.mockResolvedValue({
+      has_remote: true,
+      remote: "origin",
+      branch: "main",
+      detached: false,
+      has_upstream: true,
+      upstream: "origin/main",
+      ahead: 1,
+      behind: 2,
+    });
+    branches.mockResolvedValue([
+      { name: "main", current: true, remote: false, upstream: "origin/main" },
+      { name: "feature", current: false, remote: false },
+    ]);
+    checkoutBranch.mockResolvedValue("feature");
+
+    const { box, toast } = mount();
+    await settle();
+
+    expect(box.querySelector(".git-sync-ahead")?.textContent).toBe("1");
+    expect(box.querySelector(".git-sync-behind")?.textContent).toBe("2");
+    expect(box.querySelectorAll(".git-sync-btn")).toHaveLength(3);
+
+    const changes = () => box.querySelectorAll(".git-list")[0];
+    const rowFor = (path: string): HTMLElement =>
+      [...changes().querySelectorAll<HTMLElement>(".git-item")].find(
+        (r) => r.querySelector(".git-path")?.textContent === path,
+      )!;
+
+    // Stage tool → git_stage_path, then the panel reloads.
+    rowFor("a.log")
+      .querySelector<HTMLButtonElement>('.git-row-tool[title="暂存此文件"]')!
+      .click();
+    await settle();
+    expect(stagePath).toHaveBeenCalledWith("/repo/", "a.log");
+    expect(toast).toHaveBeenCalledWith("已暂存：a.log");
+
+    // Discard asks first, then passes confirmed=true (backend second gate).
+    rowFor("b.log")
+      .querySelector<HTMLButtonElement>('.git-row-tool[title="丢弃此文件的改动"]')!
+      .click();
+    await settle();
+    expect(ask).toHaveBeenCalled();
+    expect(discardPath).toHaveBeenCalledWith("/repo/", "b.log", true);
+    expect(toast).toHaveBeenCalledWith("已丢弃改动：b.log");
+
+    // Branch menu lists local branches and switches on click.
+    (box.querySelector(".git-branch-btn") as HTMLButtonElement).click();
+    await settle();
+    expect(branches).toHaveBeenCalledWith("/repo/");
+    const feature = [...box.querySelectorAll<HTMLElement>(".git-branch-row")].find(
+      (r) => r.textContent?.includes("feature"),
+    )!;
+    feature.click();
+    await settle();
+    expect(checkoutBranch).toHaveBeenCalledWith("/repo/", "feature", false);
+    expect(toast).toHaveBeenCalledWith("已切换到分支 feature");
+  });
+
+  it("switches the commit form for a merge in progress", async () => {
+    probe.mockResolvedValue(repoInfo());
+    status.mockResolvedValue([change("a.log", "conflicted")]);
+    log.mockResolvedValue([commit("abcdef0123456", "first")]);
+    mergeState.mockResolvedValue(true);
+    mergeCommit.mockResolvedValue("merge01");
+
+    const { box, toast } = mount();
+    await settle();
+
+    expect(box.querySelector(".git-merge-bar")).not.toBeNull();
+    expect(box.querySelector(".git-merge-title")?.textContent).toBe(
+      "合并进行中 · 1 处冲突待解决",
+    );
+    expect(box.querySelector<HTMLButtonElement>(".git-merge-bar .git-btn-primary")?.disabled).toBe(
+      true,
+    );
+    // Conflicts offer exactly the local/remote side pickers.
+    expect(box.querySelectorAll('.git-row-tool[title="用本地版本解决（ours）"]')).toHaveLength(1);
+    expect(box.querySelectorAll('.git-row-tool[title="用远端版本解决（theirs）"]')).toHaveLength(1);
+
+    // Refresh with no conflicts → the merge can be committed with the message.
+    status.mockResolvedValue([]);
+    (box.querySelector(".git-btn") as HTMLButtonElement).click();
+    await settle();
+    const submit = box.querySelector<HTMLButtonElement>(".git-merge-bar .git-btn-primary");
+    expect(submit?.disabled).toBe(false);
+    submit?.click();
+    await settle();
+    expect(mergeCommit).toHaveBeenCalledWith("/repo/", "Merge origin/main");
+    expect(toast).toHaveBeenCalledWith("已提交合并 merge01");
   });
 
   it("falls back to the error placeholder when git cannot be read", async () => {

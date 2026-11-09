@@ -1,30 +1,47 @@
 //! Inspector Git section, rebuilt on NoteLume's git panel (`git-panel.js`).
 //!
-//! Layout parity: head (branch · change count · refresh) / commit box /
-//! collapsible "变更" list / collapsible "图形" commit graph (lane SVG, HEAD
-//! branch pill) / diff-or-commit-detail box. Row metrics (24px rows, 16px
-//! status badge, 11px section titles and diff) follow `style.css:4522-5080`.
+//! Layout parity: head (branch · change count · refresh) / merge bar or commit
+//! box / collapsible "变更" list with per-file tools / collapsible "图形" commit
+//! graph (lane SVG, HEAD pill, checkout/revert tools) / "同步" remote block /
+//! diff-or-commit-detail box. Row metrics (24px rows, 16px status badge, 11px
+//! section titles and diff) follow `style.css:4522-5080`.
 //!
-//! NoteLume affordances that need new IPC are intentionally omitted instead of
-//! faked: per-file stage/unstage/discard, checkout/revert, branch list + switch,
-//! remote fetch/pull/push/merge, ahead/behind and conflict resolution. The
-//! reads below (probe / status / log / commit files / diff) and commit-all are
-//! real git2 calls added in `app/src-tauri/src/gitinfo.rs`.
+//! Every affordance here is a real git2 call from `app/src-tauri/src/gitinfo.rs`
+//! — no fake buttons. Still absent on purpose: new-branch creation and remote
+//! add/edit (they need extra forms/dialogs, and NoteLume's dialogs have no
+//! LogLume equivalent yet).
 
 import { ask } from "@tauri-apps/plugin-dialog";
 import {
+  gitBranches,
+  gitCheckoutBranch,
+  gitCheckoutCommit,
   gitCommitAll,
   gitCommitFiles,
   gitDiffFile,
+  gitDiscardPath,
+  gitFetch,
   gitInit,
   gitLog,
+  gitMergeAbort,
+  gitMergeCommit,
+  gitMergeState,
   gitProbe,
+  gitPull,
+  gitPush,
+  gitRemoteStatus,
+  gitResolveConflict,
+  gitRevertCommit,
+  gitStagePath,
   gitStatus,
+  gitUnstagePath,
   IpcError,
+  type GitBranchInfo,
   type GitCommit,
   type GitCommitFile,
   type GitFileChange,
   type GitInfo,
+  type GitRemoteStatus,
 } from "./ipc";
 
 export interface GitPanelHooks {
@@ -181,6 +198,11 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
   let diffContent: HTMLElement | null = null;
   /** Re-evaluates the current composer's disabled state after `busy` clears. */
   let syncCommit: (() => void) | null = null;
+  /** Open branch popup + its document-level click-away listener. */
+  let menu: HTMLElement | null = null;
+  let menuCleanup: (() => void) | null = null;
+  /** Last remote snapshot, reused by the sync buttons' disabled state. */
+  let remote: GitRemoteStatus | null = null;
 
   box.dataset.path = path;
   box.className = "git-panel";
@@ -205,6 +227,7 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
       placeholder(info.unavailable);
       return;
     }
+    closeMenu();
     box.textContent = "";
     if (!info.repo) {
       buildHead(info, 0);
@@ -215,8 +238,15 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
     const root = info.root ?? path;
     let changes: GitFileChange[];
     let commits: GitCommit[];
+    let merging: boolean;
+    let rs: GitRemoteStatus;
     try {
-      [changes, commits] = await Promise.all([gitStatus(root), gitLog(root, 30)]);
+      [changes, commits, merging, rs] = await Promise.all([
+        gitStatus(root),
+        gitLog(root, 30),
+        gitMergeState(root),
+        gitRemoteStatus(root),
+      ]);
     } catch (err) {
       if (stale()) return;
       placeholder(`读取 Git 状态失败：${errText(err)}`);
@@ -224,11 +254,13 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
     }
     if (stale()) return;
 
+    remote = rs;
     buildHead(info, changes.length);
-    renderBody(root, info, changes, commits);
+    renderBody(root, info, changes, commits, merging);
   }
 
   function placeholder(text: string): void {
+    closeMenu();
     box.textContent = "";
     box.append(empty(text));
   }
@@ -260,11 +292,16 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
       return;
     }
 
-    const left = el("span", "git-branch");
-    left.title = info.root ?? path;
+    const left = el("button", "git-branch git-branch-btn");
+    left.title = `${info.root ?? path}（点击切换分支）`;
     const name = el("span", "git-branch-name");
     name.textContent = info.branch || "（无提交）";
-    left.append(icon("i-branch"), name);
+    left.append(icon("i-branch"), name, icon("i-chevron"));
+    left.addEventListener("click", () => {
+      const root = info.root ?? path;
+      if (menu) closeMenu();
+      else void openBranchMenu(head, root, left);
+    });
 
     const count = el("span", "git-count");
     count.textContent = changeCount > 0 ? `${changeCount} 项改动` : "工作树干净";
@@ -279,6 +316,131 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
 
     head.append(left, count, actions);
     box.append(head);
+  }
+
+  // ---- branch menu -----------------------------------------------------
+  function closeMenu(): void {
+    menuCleanup?.();
+    menuCleanup = null;
+    menu?.remove();
+    menu = null;
+  }
+
+  async function openBranchMenu(
+    head: HTMLElement,
+    root: string,
+    anchor: HTMLElement,
+  ): Promise<void> {
+    const pop = el("div", "git-branch-menu");
+    pop.setAttribute("role", "menu");
+    pop.append(emptyInline("读取分支…"));
+    head.append(pop);
+    menu = pop;
+    const away = (e: MouseEvent): void => {
+      const t = e.target as Node;
+      if (!pop.contains(t) && !anchor.contains(t)) closeMenu();
+    };
+    const key = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") closeMenu();
+    };
+    // Defer: the click that opened the menu must not immediately close it.
+    const raf = window.setTimeout(() => {
+      document.addEventListener("mousedown", away);
+      document.addEventListener("keydown", key);
+    }, 0);
+    menuCleanup = () => {
+      window.clearTimeout(raf);
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", key);
+    };
+
+    let branches: GitBranchInfo[];
+    try {
+      branches = await gitBranches(root);
+    } catch (err) {
+      if (menu !== pop) return;
+      pop.textContent = "";
+      pop.append(emptyInline(`读取分支失败：${errText(err)}`));
+      return;
+    }
+    if (menu !== pop || !pop.isConnected) return;
+    pop.textContent = "";
+    const local = branches.filter((b) => !b.remote);
+    const remoteBranches = branches.filter((b) => b.remote);
+    if (local.length === 0) pop.append(emptyInline("没有本地分支"));
+    for (const b of local) pop.append(branchRow(root, b, pop));
+    if (remoteBranches.length > 0) {
+      const sep = el("div", "git-branch-menu-title");
+      sep.textContent = "远端";
+      pop.append(sep);
+      for (const b of remoteBranches) pop.append(branchRow(root, b, pop));
+    }
+  }
+
+  function branchRow(root: string, b: GitBranchInfo, pop: HTMLElement): HTMLElement {
+    const row = el("button", "git-branch-row");
+    row.setAttribute("role", "menuitem");
+    if (b.current) row.classList.add("git-branch-row-current");
+    const mark = el("span", "git-branch-check");
+    if (b.current) mark.append(icon("i-check"));
+    const name = el("span", "git-branch-row-name");
+    name.textContent = b.name;
+    name.title = b.remote ? `远端分支 ${b.name}` : `本地分支 ${b.name}`;
+    row.append(mark, name);
+    if (b.upstream) {
+      const up = el("span", "git-branch-row-up");
+      up.textContent = b.upstream;
+      up.title = `上游 ${b.upstream}`;
+      row.append(up);
+    }
+    row.addEventListener("click", () => {
+      pop.remove();
+      if (menu === pop) {
+        menu = null;
+        menuCleanup?.();
+        menuCleanup = null;
+      }
+      if (!b.current) void switchBranch(root, b.name);
+    });
+    return row;
+  }
+
+  async function switchBranch(root: string, name: string): Promise<void> {
+    if (busy) return;
+    busy = true;
+    try {
+      const now = await gitCheckoutBranch(root, name, false);
+      hooks.toast(`已切换到分支 ${now}`);
+      await load();
+    } catch (err) {
+      // Safe checkout refused because local edits would be overwritten.
+      // Force only after a second, explicit confirmation.
+      if (err instanceof IpcError && err.payload.code === "git_dirty") {
+        const go = await ask(
+          "切换分支被阻止：工作区有未提交改动会与目标分支冲突。\n\n强制切换会丢弃这些未提交改动，且无法撤销。确定继续？",
+          {
+            title: "切换分支",
+            kind: "warning",
+            okLabel: "强制切换",
+            cancelLabel: "取消",
+          },
+        );
+        if (go) {
+          try {
+            const now = await gitCheckoutBranch(root, name, true);
+            hooks.toast(`已强制切换到分支 ${now}（未提交改动已丢弃）`);
+            await load();
+          } catch (forced) {
+            hooks.error(forced);
+          }
+        }
+      } else {
+        hooks.error(err);
+      }
+    } finally {
+      busy = false;
+      syncCommit?.();
+    }
   }
 
   async function doInit(): Promise<void> {
@@ -308,14 +470,43 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
     info: GitInfo,
     changes: GitFileChange[],
     commits: GitCommit[],
+    merging: boolean,
   ): void {
+    const conflicts = changes.filter((c) => c.kind === "conflicted").length;
     const body = el("div", "git-body");
-    body.append(buildCommitBox(root, info, changes));
+    // NoteLume swaps the commit form for a merge bar while MERGE_HEAD exists,
+    // so a resolved merge is committed with its second parent intact.
+    body.append(
+      merging ? buildMergeBar(root, conflicts) : buildCommitBox(root, info, changes),
+    );
     body.append(buildChanges(root, changes));
     body.append(buildGraph(root, commits, info.branch ?? ""));
+    body.append(buildSync(root, changes));
     diffBox = buildDiffBox();
     body.append(diffBox);
     box.append(body);
+  }
+
+  /** One busy-wrapped git action: toast the backend message, then reload. */
+  async function runAction(task: () => Promise<unknown>, fallback: string): Promise<void> {
+    if (busy) return;
+    busy = true;
+    try {
+      const result = await task();
+      hooks.toast(typeof result === "string" ? result : fallback);
+      await load();
+    } catch (err) {
+      hooks.error(err);
+    } finally {
+      busy = false;
+      syncCommit?.();
+    }
+  }
+
+  function errCode(err: unknown): string | undefined {
+    if (!(err instanceof IpcError)) return undefined;
+    const payload = err.payload as { code?: string } | undefined;
+    return payload?.code;
   }
 
   // ---- commit box ---------------------------------------------------------
@@ -411,6 +602,229 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
     return sec;
   }
 
+  // ---- merge bar ----------------------------------------------------------
+  function buildMergeBar(root: string, conflicts: number): HTMLElement {
+    const sec = el("div", "git-sec git-merge-bar");
+    const head = el("div", "git-merge-head");
+    const title = el("span", "git-merge-title");
+    title.textContent =
+      conflicts > 0
+        ? `合并进行中 · ${conflicts} 处冲突待解决`
+        : "合并进行中 · 冲突已全部解决";
+    const hint = el("span", "git-merge-hint");
+    hint.textContent =
+      conflicts > 0 ? "在「变更」中逐项选择用本地 / 用远端" : "可以提交合并";
+    head.append(title, hint);
+
+    const row = el("div", "git-commit-row");
+    const msg = el("textarea", "git-commit-input");
+    msg.rows = 1;
+    msg.value = `Merge ${remote?.upstream ?? remote?.remote ?? "remote"}`;
+    const submit = el("button", "git-btn git-btn-primary");
+    submit.append(icon("i-check"));
+    const submitLabel = el("span");
+    submitLabel.textContent = "提交合并";
+    submit.append(submitLabel);
+    submit.title = "提交合并（Ctrl+Enter）";
+    const abort = el("button", "git-btn");
+    abort.append(icon("i-close"));
+    const abortLabel = el("span");
+    abortLabel.textContent = "中止合并";
+    abort.append(abortLabel);
+    abort.title = "中止合并并回到合并前的 HEAD";
+
+    const sync = (): void => {
+      submit.disabled = busy || conflicts > 0 || msg.value.trim() === "";
+      msg.style.height = "auto";
+      msg.style.height = `${Math.min(msg.scrollHeight, 120)}px`;
+    };
+    syncCommit = sync;
+    msg.addEventListener("input", sync);
+
+    const commit = async (): Promise<void> => {
+      if (submit.disabled) return;
+      const message = msg.value.trim();
+      if (!message) return;
+      await runAction(async () => `已提交合并 ${await gitMergeCommit(root, message)}`, "已提交合并");
+    };
+    msg.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        void commit();
+      }
+    });
+    submit.addEventListener("click", () => void commit());
+    abort.addEventListener("click", async () => {
+      if (busy) return;
+      const go = await ask(
+        "中止合并会丢弃本次合并引入的改动，回到合并前的 HEAD。确定中止？",
+        { title: "中止合并", kind: "warning", okLabel: "中止合并", cancelLabel: "取消" },
+      );
+      if (go) void runAction(() => gitMergeAbort(root), "已中止合并");
+    });
+    row.append(msg, submit, abort);
+    sec.append(head, row);
+    sync();
+    return sec;
+  }
+
+  // ---- sync (remote / ahead-behind / fetch-pull-push) ---------------------
+  function buildSync(root: string, changes: GitFileChange[]): HTMLElement {
+    const sec = el("div", "git-sec git-sync");
+    const title = el("div", "git-sec-title");
+    title.textContent = "同步";
+    const line = el("div", "git-sync-line");
+    const target = el("span", "git-sync-target");
+    const state = el("span", "git-sync-state");
+    const actions = el("span", "git-sync-actions");
+    const rs = remote;
+
+    const hasRemote = rs?.has_remote === true;
+    if (!rs || !hasRemote) {
+      target.textContent = "未配置远端";
+      state.textContent = "添加 origin 后可获取 / 拉取 / 推送";
+      state.classList.add("git-sync-dim");
+    } else {
+      target.title = rs.url ?? "";
+      const branchLabel = rs.detached ? "分离 HEAD" : rs.branch ?? "（无提交）";
+      target.textContent = `${rs.remote ?? "origin"} · ${branchLabel}`;
+      if (rs.detached) {
+        state.textContent = "分离 HEAD";
+        state.classList.add("git-sync-dim");
+      } else if (!rs.has_upstream) {
+        state.textContent = "无上游";
+        state.classList.add("git-sync-dim");
+      } else if (rs.ahead === 0 && rs.behind === 0) {
+        state.textContent = "已同步";
+      } else {
+        if (rs.ahead > 0) {
+          const a = el("span", "git-sync-ahead");
+          a.append(icon("i-up"));
+          a.append(`${rs.ahead}`);
+          a.title = `本地领先 ${rs.ahead} 个提交`;
+          state.append(a);
+        }
+        if (rs.behind > 0) {
+          const b = el("span", "git-sync-behind");
+          b.append(icon("i-down"));
+          b.append(`${rs.behind}`);
+          b.title = `本地落后 ${rs.behind} 个提交`;
+          state.append(b);
+        }
+      }
+    }
+
+    const tool = (
+      iconId: string,
+      label: string,
+      disabled: boolean,
+      title: string,
+      action: () => void,
+    ): HTMLButtonElement => {
+      const btn = el("button", "git-btn git-sync-btn");
+      btn.append(icon(iconId));
+      const text = el("span");
+      text.textContent = label;
+      btn.append(text);
+      btn.disabled = disabled;
+      btn.title = title;
+      if (!disabled) btn.addEventListener("click", action);
+      return btn;
+    };
+
+    const detached = rs?.detached === true;
+    actions.append(
+      tool(
+        "i-globe",
+        "获取",
+        !hasRemote,
+        hasRemote ? "从远端获取最新引用" : "需要先配置远端",
+        () => void runAction(() => gitFetch(root), "已获取远端"),
+      ),
+      tool(
+        "i-down",
+        "拉取",
+        !hasRemote || detached,
+        detached
+          ? "分离 HEAD 下无法拉取"
+          : hasRemote
+            ? "获取并快进或合并远端提交"
+            : "需要先配置远端",
+        () => void doPull(root, changes),
+      ),
+      tool(
+        "i-up",
+        "推送",
+        !hasRemote || detached,
+        detached
+          ? "分离 HEAD 下无法推送"
+          : hasRemote
+            ? "推送当前分支到远端"
+            : "需要先配置远端",
+        () => void doPush(root),
+      ),
+    );
+    line.append(target, state, actions);
+    sec.append(title, line);
+    return sec;
+  }
+
+  async function doPull(root: string, changes: GitFileChange[]): Promise<void> {
+    if (busy) return;
+    if (changes.length > 0) {
+      const go = await ask(
+        `工作区有 ${changes.length} 项未提交改动，拉取可能被阻止或产生冲突。仍然拉取？`,
+        { title: "拉取", kind: "warning", okLabel: "拉取", cancelLabel: "取消" },
+      );
+      if (!go) return;
+    }
+    busy = true;
+    try {
+      const result = await gitPull(root);
+      hooks.toast(result.message);
+      await load();
+    } catch (err) {
+      hooks.error(err);
+    } finally {
+      busy = false;
+      syncCommit?.();
+    }
+  }
+
+  async function doPush(root: string): Promise<void> {
+    if (busy) return;
+    busy = true;
+    try {
+      const message = await gitPush(root, false);
+      hooks.toast(message);
+      await load();
+    } catch (err) {
+      if (errCode(err) === "no_upstream") {
+        const r = remote;
+        const branch = r?.branch ?? "当前分支";
+        const remoteName = r?.remote ?? "origin";
+        const go = await ask(
+          `当前分支 ${branch} 没有上游。向 ${remoteName}/${branch} 首次推送并建立上游？`,
+          { title: "首次推送", kind: "info", okLabel: "推送", cancelLabel: "取消" },
+        );
+        if (go) {
+          try {
+            const message = await gitPush(root, true);
+            hooks.toast(message);
+            await load();
+          } catch (inner) {
+            hooks.error(inner);
+          }
+        }
+      } else {
+        hooks.error(err);
+      }
+    } finally {
+      busy = false;
+      syncCommit?.();
+    }
+  }
+
   // ---- collapsible sections ----------------------------------------------
   function section(
     key: "changes" | "graph",
@@ -460,8 +874,8 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
         badge.textContent = KIND_BADGE[c.kind] ?? "•";
         const pathEl = el("span", "git-path");
         pathEl.textContent = c.path;
-        row.append(badge, pathEl);
         const label = KIND_LABEL[c.kind] ?? c.kind;
+        row.append(badge, pathEl, buildChangeTools(root, c));
         row.addEventListener("click", () =>
           void showDiff(root, c.path, "HEAD", `${label}：${c.path}`),
         );
@@ -470,6 +884,74 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
       if (changes.length >= 1000) list.append(emptyInline("改动过多，仅显示前 1000 项"));
     }
     return section("changes", "变更", changes.length > 0 ? String(changes.length) : "", list);
+  }
+
+  /** Per-file tools: stage/unstage/discard, or conflict side-picking. */
+  function buildChangeTools(root: string, c: GitFileChange): HTMLElement {
+    const tools = el("span", "git-row-tools");
+    const add = (iconId: string, title: string, action: () => void): void => {
+      const btn = el("button", "git-row-tool");
+      btn.append(icon(iconId));
+      btn.title = title;
+      btn.setAttribute("aria-label", title);
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        action();
+      });
+      tools.append(btn);
+    };
+    if (c.kind === "conflicted") {
+      add("i-check", "用本地版本解决（ours）", () =>
+        void resolveConflict(root, c.path, "ours", "本地"),
+      );
+      add("i-target", "用远端版本解决（theirs）", () =>
+        void resolveConflict(root, c.path, "theirs", "远端"),
+      );
+      return tools;
+    }
+    if (c.staged) {
+      add("i-minus", "取消暂存", () =>
+        void runAction(() => gitUnstagePath(root, c.path), `已取消暂存：${c.path}`),
+      );
+    } else {
+      add("i-plus", "暂存此文件", () =>
+        void runAction(() => gitStagePath(root, c.path), `已暂存：${c.path}`),
+      );
+    }
+    add("i-undo", "丢弃此文件的改动", () => void discardChange(root, c));
+    return tools;
+  }
+
+  async function discardChange(root: string, c: GitFileChange): Promise<void> {
+    if (busy) return;
+    const deletes = c.kind === "untracked" || c.kind === "new";
+    const effect = deletes
+      ? "文件将从磁盘删除（含暂存的新文件），无法撤销。"
+      : "改动将还原为 HEAD 版本，无法撤销。";
+    const go = await ask(`丢弃 ${c.path} 的改动？\n\n${effect}`, {
+      title: "丢弃改动",
+      kind: "warning",
+      okLabel: "丢弃",
+      cancelLabel: "取消",
+    });
+    if (!go) return;
+    // The backend also requires confirmed=true; this is the second gate.
+    await runAction(
+      () => gitDiscardPath(root, c.path, true),
+      `已丢弃改动：${c.path}`,
+    );
+  }
+
+  async function resolveConflict(
+    root: string,
+    path: string,
+    side: "ours" | "theirs",
+    label: string,
+  ): Promise<void> {
+    await runAction(
+      () => gitResolveConflict(root, path, side),
+      `已用${label}版本解决：${path}`,
+    );
   }
 
   // ---- commit graph -------------------------------------------------------
@@ -547,7 +1029,23 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
         summary.textContent = c.summary || "（无提交信息）";
         const author = el("span", "git-meta");
         author.textContent = c.author_name;
-        row.append(svg, summary, author);
+        const tools = el("span", "git-row-tools git-commit-tools");
+        const tool = (iconId: string, title: string, action: () => void): void => {
+          const btn = el("button", "git-row-tool");
+          btn.append(icon(iconId));
+          btn.title = title;
+          btn.setAttribute("aria-label", title);
+          btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            action();
+          });
+          tools.append(btn);
+        };
+        tool("i-target", "检出此提交（分离 HEAD）", () =>
+          void checkoutCommit(root, c),
+        );
+        tool("i-undo", "还原此提交（生成新提交）", () => void revertCommit(root, c));
+        row.append(svg, summary, author, tools);
         if (c.id === headId && branch) {
           const pill = el("span", "git-branch-pill");
           pill.textContent = branch;
@@ -560,6 +1058,52 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
       }
     }
     return section("graph", "图形", commits.length > 0 ? String(commits.length) : "", list);
+  }
+
+  async function checkoutCommit(root: string, c: GitCommit): Promise<void> {
+    if (busy) return;
+    const go = await ask(
+      `检出提交 ${c.id_short}？\n\n将进入分离 HEAD 状态：当前不在任何分支上，新的提交不会推进已有分支；随时可以从分支菜单切回。工作区有未提交改动时会被阻止。`,
+      { title: "检出提交", kind: "warning", okLabel: "检出", cancelLabel: "取消" },
+    );
+    if (!go) return;
+    busy = true;
+    try {
+      const message = await gitCheckoutCommit(root, c.id, false);
+      hooks.toast(message);
+      await load();
+    } catch (err) {
+      if (errCode(err) === "git_dirty") {
+        const force = await ask(
+          "工作区有未提交改动与目标提交冲突。强制检出会丢弃这些改动，且无法撤销。确定继续？",
+          { title: "强制检出", kind: "warning", okLabel: "强制检出", cancelLabel: "取消" },
+        );
+        if (force) {
+          try {
+            const message = await gitCheckoutCommit(root, c.id, true);
+            hooks.toast(message);
+            await load();
+          } catch (inner) {
+            hooks.error(inner);
+          }
+        }
+      } else {
+        hooks.error(err);
+      }
+    } finally {
+      busy = false;
+      syncCommit?.();
+    }
+  }
+
+  async function revertCommit(root: string, c: GitCommit): Promise<void> {
+    if (busy) return;
+    const go = await ask(
+      `还原提交 ${c.id_short}「${c.summary}」？\n\n会创建一个新的反向提交；工作区有未提交改动时会被阻止。`,
+      { title: "还原提交", kind: "warning", okLabel: "还原", cancelLabel: "取消" },
+    );
+    if (!go) return;
+    await runAction(() => gitRevertCommit(root, c.id), `已还原 ${c.id_short}`);
   }
 
   // ---- diff / commit detail ----------------------------------------------
