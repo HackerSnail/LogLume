@@ -2815,6 +2815,62 @@ pub fn git_checkout_branch(
         .map_err(git_err)
 }
 
+/// Create a branch at `startPoint` (commit-ish, default HEAD) and optionally
+/// check it out. Name rules are enforced in the backend as well as the dialog.
+#[tauri::command]
+pub async fn git_branch_create(
+    root: String,
+    name: String,
+    start_point: Option<String>,
+    checkout: Option<bool>,
+) -> Result<String, IpcError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::gitinfo::git_branch_create(
+            Path::new(&root),
+            &name,
+            start_point.as_deref(),
+            checkout.unwrap_or(true),
+        )
+        .map_err(git_err)
+    })
+    .await
+    .map_err(|e| IpcError::new("git", e.to_string()))?
+}
+
+/// Configured remotes (`name` + `url`) for the add/edit dialogs.
+#[tauri::command]
+pub fn git_remotes(root: String) -> Result<Vec<crate::gitinfo::GitRemoteInfo>, IpcError> {
+    crate::gitinfo::git_remotes(Path::new(&root)).map_err(git_err)
+}
+
+/// Add a remote (config only; no network). Name/URL are validated first.
+#[tauri::command]
+pub async fn git_remote_add(
+    root: String,
+    name: String,
+    url: String,
+) -> Result<(), IpcError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::gitinfo::git_remote_add(Path::new(&root), &name, &url).map_err(git_err)
+    })
+    .await
+    .map_err(|e| IpcError::new("git", e.to_string()))?
+}
+
+/// Change one remote's URL. The remote name itself is not renamed.
+#[tauri::command]
+pub async fn git_remote_set_url(
+    root: String,
+    name: String,
+    url: String,
+) -> Result<(), IpcError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::gitinfo::git_remote_set_url(Path::new(&root), &name, &url).map_err(git_err)
+    })
+    .await
+    .map_err(|e| IpcError::new("git", e.to_string()))?
+}
+
 /// Detached-HEAD checkout of a commit; the result message spells that out.
 #[tauri::command]
 pub fn git_checkout_commit(

@@ -34,6 +34,12 @@ const pullRemote = vi.fn<(root: string) => Promise<{ status: string; message: st
 const pushRemote = vi.fn<(root: string, setUpstream?: boolean) => Promise<string>>();
 const mergeCommit = vi.fn<(root: string, msg: string) => Promise<string>>();
 const mergeAbort = vi.fn<(root: string) => Promise<void>>();
+const branchCreate = vi.fn<
+  (root: string, name: string, startPoint?: string, checkout?: boolean) => Promise<string>
+>();
+const remotes = vi.fn<(root: string) => Promise<{ name: string; url: string }[]>>();
+const remoteAdd = vi.fn<(root: string, name: string, url: string) => Promise<void>>();
+const remoteSetUrl = vi.fn<(root: string, name: string, url: string) => Promise<void>>();
 
 class FakeIpcError extends Error {
   zh: string;
@@ -68,11 +74,16 @@ vi.mock("./ipc", () => ({
   gitPush: (r: string, u?: boolean) => pushRemote(r, u),
   gitMergeCommit: (r: string, m: string) => mergeCommit(r, m),
   gitMergeAbort: (r: string) => mergeAbort(r),
+  gitBranchCreate: (r: string, n: string, s?: string, c?: boolean) => branchCreate(r, n, s, c),
+  gitRemotes: (r: string) => remotes(r),
+  gitRemoteAdd: (r: string, n: string, u: string) => remoteAdd(r, n, u),
+  gitRemoteSetUrl: (r: string, n: string, u: string) => remoteSetUrl(r, n, u),
   IpcError: FakeIpcError,
 }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: (m: string, o?: unknown) => ask(m, o) }));
 
-const { mountGitPanel } = await import("./gitpanel");
+const { mountGitPanel, branchNameError, remoteNameError, remoteUrlError } =
+  await import("./gitpanel");
 
 const emptyInfo: GitInfo = {
   repo: false,
@@ -147,6 +158,10 @@ beforeEach(() => {
   pushRemote.mockResolvedValue("已推送 main → origin/main");
   mergeCommit.mockResolvedValue("abc1234");
   mergeAbort.mockResolvedValue(undefined);
+  branchCreate.mockResolvedValue("已创建并切换到分支 feat/x（起点 abc1234）");
+  remotes.mockResolvedValue([{ name: "origin", url: "https://example.com/a.git" }]);
+  remoteAdd.mockResolvedValue(undefined);
+  remoteSetUrl.mockResolvedValue(undefined);
 });
 
 describe("Git panel parity", () => {
@@ -354,5 +369,180 @@ describe("Git panel parity", () => {
     const { box } = mount();
     await settle();
     expect(box.querySelector(".git-empty")?.textContent).toBe("读取 Git 状态失败：仓库损坏");
+  });
+
+  it("creates a branch from the menu, rejecting bad and duplicate names inline", async () => {
+    probe.mockResolvedValue(repoInfo());
+    status.mockResolvedValue([]);
+    log.mockResolvedValue([commit("abcdef0123456", "first")]);
+    branches.mockResolvedValue([
+      { name: "main", current: true, remote: false, upstream: "origin/main" },
+      { name: "feature", current: false, remote: false },
+    ]);
+
+    const { box, toast } = mount();
+    await settle();
+
+    (box.querySelector(".git-branch-btn") as HTMLButtonElement).click();
+    await settle();
+    const create = [...box.querySelectorAll<HTMLElement>(".git-branch-row")].find((r) =>
+      r.textContent?.includes("新建分支"),
+    )!;
+    create.click();
+    await settle();
+
+    const dlg = document.querySelector<HTMLElement>(".prompt-box")!;
+    expect(dlg.querySelector(".prompt-title")?.textContent).toBe("新建分支");
+    // Start-point select offers HEAD plus recent commits.
+    expect(dlg.querySelectorAll(".prompt-select option")).toHaveLength(2);
+    const nameInput = dlg.querySelector<HTMLInputElement>(".prompt-input")!;
+    const confirm = dlg.querySelector<HTMLButtonElement>(".prompt-btn.primary")!;
+
+    // Duplicate local name → inline error, backend untouched.
+    nameInput.value = "feature";
+    confirm.click();
+    await settle();
+    expect(dlg.querySelector<HTMLElement>(".prompt-err")?.textContent).toBe("分支 feature 已存在");
+    expect(branchCreate).not.toHaveBeenCalled();
+
+    // Invalid ref name → inline error as well.
+    nameInput.value = "bad name";
+    nameInput.dispatchEvent(new Event("input", { bubbles: true }));
+    confirm.click();
+    await settle();
+    expect(dlg.querySelector<HTMLElement>(".prompt-err")?.textContent).toContain("空格");
+    expect(branchCreate).not.toHaveBeenCalled();
+
+    nameInput.value = "feat/x";
+    nameInput.dispatchEvent(new Event("input", { bubbles: true }));
+    confirm.click();
+    await settle();
+
+    expect(branchCreate).toHaveBeenCalledWith("/repo/", "feat/x", undefined, true);
+    expect(toast).toHaveBeenCalledWith("已创建并切换到分支 feat/x（起点 abc1234）");
+    expect(document.querySelector(".prompt-box")).toBeNull();
+  });
+
+  it("adds a remote with inline name/url validation when none is configured", async () => {
+    probe.mockResolvedValue(repoInfo());
+    status.mockResolvedValue([]);
+    log.mockResolvedValue([]);
+    remoteStatus.mockResolvedValue({
+      has_remote: false,
+      branch: "main",
+      detached: false,
+      has_upstream: false,
+      ahead: 0,
+      behind: 0,
+    });
+    remotes.mockResolvedValue([]);
+
+    const { box, toast } = mount();
+    await settle();
+    expect(box.querySelector(".git-sync-target")?.textContent).toBe("未配置远端");
+
+    const add = [...box.querySelectorAll<HTMLButtonElement>(".git-sync-btn")].find((b) =>
+      b.textContent?.includes("添加远端"),
+    )!;
+    add.click();
+    await settle();
+
+    const dlg = document.querySelector<HTMLElement>(".prompt-box")!;
+    const inputs = dlg.querySelectorAll<HTMLInputElement>(".prompt-input");
+    expect(inputs[0].value).toBe("origin");
+    const confirm = dlg.querySelector<HTMLButtonElement>(".prompt-btn.primary")!;
+    const visibleErr = (): string =>
+      [...dlg.querySelectorAll<HTMLElement>(".prompt-err")].find((n) => !n.hidden)?.textContent ??
+      "";
+
+    // Empty URL and a non-git scheme are rejected before any IPC call.
+    confirm.click();
+    await settle();
+    expect(visibleErr()).toBe("请输入远端地址");
+    expect(remoteAdd).not.toHaveBeenCalled();
+
+    inputs[1].value = "ftp:/nope";
+    inputs[1].dispatchEvent(new Event("input", { bubbles: true }));
+    confirm.click();
+    await settle();
+    expect(visibleErr()).toContain("地址需形如");
+    expect(remoteAdd).not.toHaveBeenCalled();
+
+    inputs[1].value = "https://example.com/r.git";
+    inputs[1].dispatchEvent(new Event("input", { bubbles: true }));
+    confirm.click();
+    await settle();
+
+    expect(remoteAdd).toHaveBeenCalledWith("/repo/", "origin", "https://example.com/r.git");
+    expect(toast).toHaveBeenCalledWith("已添加远端 origin");
+    expect(document.querySelector(".prompt-box")).toBeNull();
+  });
+
+  it("edits the existing remote URL from the sync target", async () => {
+    probe.mockResolvedValue(repoInfo());
+    status.mockResolvedValue([]);
+    log.mockResolvedValue([]);
+    remoteStatus.mockResolvedValue({
+      has_remote: true,
+      remote: "origin",
+      url: "https://example.com/a.git",
+      branch: "main",
+      detached: false,
+      has_upstream: true,
+      upstream: "origin/main",
+      ahead: 0,
+      behind: 0,
+    });
+
+    const { box, toast } = mount();
+    await settle();
+
+    const target = box.querySelector<HTMLElement>(".git-sync-target-btn")!;
+    expect(target.getAttribute("role")).toBe("button");
+    target.click();
+    await settle();
+
+    const dlg = document.querySelector<HTMLElement>(".prompt-box")!;
+    expect(dlg.querySelector(".prompt-title")?.textContent).toBe("编辑远端 origin");
+    const url = dlg.querySelector<HTMLInputElement>(".prompt-input")!;
+    expect(url.value).toBe("https://example.com/a.git");
+
+    url.value = "git@github.com:me/b.git";
+    url.dispatchEvent(new Event("input", { bubbles: true }));
+    dlg.querySelector<HTMLButtonElement>(".prompt-btn.primary")!.click();
+    await settle();
+
+    expect(remoteSetUrl).toHaveBeenCalledWith("/repo/", "origin", "git@github.com:me/b.git");
+    expect(toast).toHaveBeenCalledWith("已更新远端 origin 的地址");
+    expect(document.querySelector(".prompt-box")).toBeNull();
+  });
+
+  it("validates branch names, remote names and remote URLs", () => {
+    expect(branchNameError("")).toBe("请输入分支名");
+    for (const bad of ["a b", "a..b", "a//b", "a.lock", "a~b", "a^b", "a:b", "a?b", "a*b", "a[b", "a\\b", "@", "a.", "/a", "a/", "-a", ".a"]) {
+      expect(branchNameError(bad), bad).not.toBeNull();
+    }
+    expect(branchNameError("feat/x-1")).toBeNull();
+    expect(branchNameError("feature", ["main", "feature"])).toBe("分支 feature 已存在");
+
+    expect(remoteNameError("")).toBe("请输入远端名");
+    for (const bad of ["a/b", "a b", "a..b", "-a", ".a", "a:b", "a@b", "a{b}"]) {
+      expect(remoteNameError(bad), bad).not.toBeNull();
+    }
+    expect(remoteNameError("upstream-1")).toBeNull();
+    expect(remoteNameError("origin", ["origin"])).toBe("远端 origin 已存在");
+
+    for (const ok of [
+      "https://github.com/a/b.git",
+      "ssh://git@host:22/a/b.git",
+      "git@github.com:a/b.git",
+      "file:///tmp/a.git",
+      "D:\\repos\\a.git",
+    ]) {
+      expect(remoteUrlError(ok), ok).toBeNull();
+    }
+    for (const bad of ["", "example.com/a.git", "ftp:/nope", "https://", "git@host", "a b"]) {
+      expect(remoteUrlError(bad), bad).not.toBeNull();
+    }
   });
 });

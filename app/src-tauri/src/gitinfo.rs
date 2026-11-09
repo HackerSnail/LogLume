@@ -815,6 +815,80 @@ pub fn git_checkout_branch(root: &Path, name: &str, force: bool) -> Result<Strin
     Ok(target_ref.trim_start_matches("refs/heads/").to_string())
 }
 
+/// Create a branch at `start_point` (commit-ish, default HEAD) and optionally
+/// switch to it. The name is validated against git's own ref rules *here* too,
+/// so a bad name can never reach the ref store. When the switch would overwrite
+/// local edits the new branch is deleted again and `[git_dirty]` is returned —
+/// the worktree is never touched.
+pub fn git_branch_create(
+    root: &Path,
+    name: &str,
+    start_point: Option<&str>,
+    checkout: bool,
+) -> Result<String, String> {
+    let repo = open_repo(root)?;
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("[git_invalid_name]分支名不能为空".to_string());
+    }
+    // `Reference::is_valid_name` covers most of git's rules; these are the
+    // shorthand cases it accepts but `git check-ref-format --branch` does not.
+    let shorthand_bad = name == "@"
+        || name.eq_ignore_ascii_case("HEAD")
+        || name.starts_with('-')
+        || name.starts_with('.')
+        || name.ends_with('.')
+        || name.ends_with(".lock")
+        || name.contains("@{")
+        || name.ends_with('/')
+        || name.starts_with('/')
+        || name.contains("//")
+        || name.contains("..")
+        || name.chars().any(|c| c.is_whitespace() || c.is_control());
+    if shorthand_bad || !git2::Reference::is_valid_name(&format!("refs/heads/{name}")) {
+        return Err(format!("[git_invalid_name]分支名不合法：{name}"));
+    }
+    if repo.find_branch(name, BranchType::Local).is_ok() {
+        return Err(format!("[git_exists]分支已存在：{name}"));
+    }
+    let start = start_point
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("HEAD"));
+    let commit = match start {
+        Some(rev) => repo
+            .revparse_single(rev)
+            .and_then(|o| o.peel_to_commit())
+            .map_err(|e| format!("[git]找不到起点 {rev}：{e}"))?,
+        None => repo
+            .head()
+            .and_then(|h| h.peel_to_commit())
+            .map_err(|_| "[git]仓库还没有任何提交，无法创建分支".to_string())?,
+    };
+    let oid = commit.id();
+    let short = oid.to_string().chars().take(7).collect::<String>();
+    let mut branch = repo
+        .branch(name, &commit, false)
+        .map_err(|e| format!("[git]创建分支失败：{e}"))?;
+    if !checkout {
+        return Ok(format!("已创建分支 {name}（起点 {short}）"));
+    }
+    let obj = repo
+        .find_object(oid, Some(ObjectType::Commit))
+        .map_err(|e| format!("[git]读取起点提交失败：{e}"))?;
+    let mut opts = CheckoutBuilder::new();
+    opts.update_index(true).safe();
+    if let Err(e) = repo.checkout_tree(&obj, Some(&mut opts)) {
+        let _ = branch.delete();
+        let n = dirty_count(&repo).unwrap_or(0);
+        return Err(format!(
+            "[git_dirty]新建分支已取消：工作区有 {n} 项未提交改动会与目标冲突，未覆盖任何本地改动。原始错误：{e}"
+        ));
+    }
+    repo.set_head(&format!("refs/heads/{name}"))
+        .map_err(|e| format!("[git]切换 HEAD 失败：{e}"))?;
+    Ok(format!("已创建并切换到分支 {name}（起点 {short}）"))
+}
+
 /// Detached-HEAD checkout of an arbitrary commit (view an old state). The
 /// returned message states the detached state explicitly.
 pub fn git_checkout_commit(root: &Path, id: &str, force: bool) -> Result<String, String> {
@@ -962,6 +1036,113 @@ pub fn git_remote_status(root: &Path) -> Result<GitRemoteStatus, String> {
         ahead,
         behind,
     })
+}
+
+#[derive(Debug, Serialize)]
+pub struct GitRemoteInfo {
+    pub name: String,
+    pub url: String,
+}
+
+/// Remote names: no whitespace/control chars, no ref punctuation, no `/`
+/// (git rejects all of these too), and not starting with `-` or `.`.
+fn validate_remote_name(name: &str) -> Result<(), String> {
+    let bad = name.is_empty()
+        || name.starts_with('-')
+        || name.starts_with('.')
+        || name.contains('/')
+        || name.contains("..")
+        || name.chars().any(|c| {
+            c.is_whitespace()
+                || c.is_control()
+                || matches!(c, '~' | '^' | ':' | '?' | '*' | '[' | '\\' | '@' | '{' | '}')
+        });
+    if bad {
+        return Err(format!(
+            "[git_invalid_name]远端名不合法：{name}（可用字母、数字、. _ -，且不以 - 或 . 开头）"
+        ));
+    }
+    Ok(())
+}
+
+/// Accept only the shapes git itself accepts: http(s)/ssh/git/file URLs,
+/// scp-like `user@host:path`, or a local absolute path. Junk never reaches the
+/// config file.
+fn validate_remote_url(url: &str) -> Result<(), String> {
+    let u = url.trim();
+    let lower = u.to_ascii_lowercase();
+    let scheme_ok = ["https://", "http://", "ssh://", "git://", "file://"]
+        .iter()
+        .any(|p| lower.len() > p.len() && lower.starts_with(p));
+    let scp_ok = match (u.find('@'), u.find(':')) {
+        (Some(at), Some(colon)) if at > 0 && colon > at + 1 => !u.chars().any(|c| c.is_whitespace()),
+        _ => false,
+    };
+    let path_ok = !u.chars().any(|c| c.is_whitespace())
+        && u.chars().any(|c| c.is_alphanumeric())
+        && (u.starts_with('/')
+            || u.starts_with('\\')
+            || {
+                let b = u.as_bytes();
+                b.len() > 2
+                    && b[0].is_ascii_alphabetic()
+                    && b[1] == b':'
+                    && (b[2] == b'\\' || b[2] == b'/')
+            });
+    if !(scheme_ok || scp_ok || path_ok) {
+        return Err(format!(
+            "[git_invalid_url]远端地址不合法：{url}（支持 https://、ssh://、git@host:path 或本地路径）"
+        ));
+    }
+    Ok(())
+}
+
+pub fn git_remotes(root: &Path) -> Result<Vec<GitRemoteInfo>, String> {
+    let repo = open_repo(root)?;
+    let names = repo
+        .remotes()
+        .map_err(|e| format!("[git]读取远端失败：{e}"))?;
+    let mut out = Vec::new();
+    for name in names.iter().flatten() {
+        let url = repo
+            .find_remote(name)
+            .ok()
+            .and_then(|r| r.url().map(str::to_string))
+            .unwrap_or_default();
+        out.push(GitRemoteInfo {
+            name: name.to_string(),
+            url,
+        });
+    }
+    Ok(out)
+}
+
+/// Config-only write (no network). Name and URL are validated first so the
+/// dialog's inline rules and the backend agree.
+pub fn git_remote_add(root: &Path, name: &str, url: &str) -> Result<(), String> {
+    let repo = open_repo(root)?;
+    let name = name.trim();
+    let url = url.trim();
+    validate_remote_name(name)?;
+    validate_remote_url(url)?;
+    if repo.find_remote(name).is_ok() {
+        return Err(format!("[git_exists]远端已存在：{name}"));
+    }
+    repo.remote(name, url)
+        .map(|_| ())
+        .map_err(|e| format!("[git]添加远端失败：{e}"))
+}
+
+pub fn git_remote_set_url(root: &Path, name: &str, url: &str) -> Result<(), String> {
+    let repo = open_repo(root)?;
+    let name = name.trim();
+    let url = url.trim();
+    validate_remote_url(url)?;
+    if repo.find_remote(name).is_err() {
+        return Err(format!("[git]远端不存在：{name}"));
+    }
+    repo.remote_set_url(name, url)
+        .map_err(|e| format!("[git]更新远端地址失败：{e}"))
 }
 
 /// Credentials come from the system git setup only: the configured
@@ -1724,6 +1905,104 @@ mod tests {
         git_checkout_branch(dir, &main, true).unwrap();
         assert_eq!(read_text(&dir.join("a.log")), "one\n");
         assert!(git_status(dir).unwrap().is_empty());
+    }
+
+    #[test]
+    fn branch_create_validates_names_and_applies_safe_checkout() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        fs::write(dir.join("a.log"), "one\n").unwrap();
+        git_init(dir).unwrap();
+        let repo = Repository::open(dir).unwrap();
+        set_identity(&repo, "测试者");
+        git_stage_all_and_commit(dir, "第一", None, None).unwrap();
+        let main = head_branch_name(&repo).unwrap();
+        let first = head_id(&repo);
+        fs::write(dir.join("a.log"), "one\ntwo\n").unwrap();
+        git_stage_all_and_commit(dir, "第二", None, None).unwrap();
+        let second = head_id(&repo);
+
+        // Ref rules are enforced before touching the ref store.
+        for bad in ["", "has space", "a..b", "a//b", "a.lock", "a~b", "a^b", "a:b", "a?b", "a*b", "a[b", "a\\b", "@", "a.", "/a", "a/"] {
+            let err = git_branch_create(dir, bad, None, false).unwrap_err();
+            assert!(err.starts_with("[git_invalid_name]"), "name {bad:?}: {err}");
+        }
+        assert!(git_branch_create(dir, &main, None, false)
+            .unwrap_err()
+            .starts_with("[git_exists]"));
+
+        // Create without switching: ref exists, HEAD unchanged.
+        let msg = git_branch_create(dir, "topic", None, false).unwrap();
+        assert!(msg.contains("已创建分支 topic"), "msg was {msg}");
+        assert!(repo.find_branch("topic", BranchType::Local).is_ok());
+        assert_eq!(head_id(&repo), second);
+        assert_eq!(head_branch_name(&repo).as_deref(), Some(main.as_str()));
+
+        // Create + switch at an older commit: HEAD and worktree move to it.
+        let msg = git_branch_create(dir, "old", Some(&first), true).unwrap();
+        assert!(msg.contains("已创建并切换到分支 old"), "msg was {msg}");
+        assert_eq!(head_branch_name(&repo).as_deref(), Some("old"));
+        assert_eq!(head_id(&repo), first);
+        assert_eq!(read_text(&dir.join("a.log")), "one\n");
+
+        // Unknown start point is reported, not silently ignored.
+        assert!(git_branch_create(dir, "nope", Some("deadbeef"), false)
+            .unwrap_err()
+            .starts_with("[git]"));
+
+        // A switch that would overwrite local edits deletes the new branch and
+        // leaves the edit intact.
+        fs::write(dir.join("a.log"), "dirty\n").unwrap();
+        let err = git_branch_create(dir, "blocked", Some(&second), true).unwrap_err();
+        assert!(err.starts_with("[git_dirty]"), "err was {err}");
+        assert_eq!(read_text(&dir.join("a.log")), "dirty\n");
+        assert!(repo.find_branch("blocked", BranchType::Local).is_err());
+        assert_eq!(head_branch_name(&repo).as_deref(), Some("old"));
+    }
+
+    #[test]
+    fn remote_add_edit_and_validation() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        fs::write(dir.join("a.log"), "one\n").unwrap();
+        git_init(dir).unwrap();
+        assert!(git_remotes(dir).unwrap().is_empty());
+
+        for bad_name in ["", "-bad", ".bad", "a/b", "a b", "a..b", "a:b"] {
+            assert!(
+                git_remote_add(dir, bad_name, "https://example.com/r.git")
+                    .unwrap_err()
+                    .starts_with("[git_invalid_name]"),
+                "name {bad_name:?}"
+            );
+        }
+        for bad_url in ["", "example.com/repo", "ftp:/nope", "https://", "git@host", "has space"] {
+            assert!(
+                git_remote_add(dir, "origin", bad_url)
+                    .unwrap_err()
+                    .starts_with("[git_invalid_url]"),
+                "url {bad_url:?}"
+            );
+        }
+
+        git_remote_add(dir, "origin", "https://example.com/a.git").unwrap();
+        let remotes = git_remotes(dir).unwrap();
+        assert_eq!(remotes.len(), 1);
+        assert_eq!(remotes[0].name, "origin");
+        assert_eq!(remotes[0].url, "https://example.com/a.git");
+        assert!(git_remote_add(dir, "origin", "https://example.com/b.git")
+            .unwrap_err()
+            .starts_with("[git_exists]"));
+
+        git_remote_set_url(dir, "origin", "git@github.com:me/b.git").unwrap();
+        assert_eq!(
+            git_remotes(dir).unwrap()[0].url,
+            "git@github.com:me/b.git"
+        );
+        assert!(git_remote_set_url(dir, "missing", "https://example.com/c.git")
+            .unwrap_err()
+            .starts_with("[git]"));
+        assert!(git_remote_status(dir).unwrap().has_remote);
     }
 
     #[test]
