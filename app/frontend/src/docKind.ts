@@ -85,6 +85,8 @@ const NON_LOG_EXTENSIONS = new Set([
   "sol",
   "dot",
   "gv",
+  "gd",
+  "gdscript",
   "liquid",
   "wat",
   "wast",

@@ -141,6 +141,7 @@ export const AVAILABLE_MODES = [
   "graphql",
   "solidity",
   "dot",
+  "gdscript",
   "liquid",
   "angular",
   "wast",
@@ -223,6 +224,7 @@ export const MODE_LABELS: Record<ModeChoice, string> = {
   graphql: "GraphQL",
   solidity: "Solidity",
   dot: "Graphviz DOT",
+  gdscript: "GDScript",
   liquid: "Liquid",
   angular: "Angular",
   wast: "WebAssembly",
@@ -343,6 +345,8 @@ const EXT_MODES: Record<string, ModeChoice> = {
   sol: "solidity",
   dot: "dot",
   gv: "dot",
+  gd: "gdscript",
+  gdscript: "gdscript",
   liquid: "liquid",
   wat: "wast",
   wast: "wast",
@@ -703,6 +707,62 @@ async function loadLanguage(mode: ModeChoice): Promise<LanguageSupport | null> {
     case "dot": {
       const { dot } = await import("@viz-js/lang-dot");
       return dot();
+    }
+    case "gdscript": {
+      const { simpleMode } = await import("@codemirror/legacy-modes/mode/simple-mode");
+      const keywords =
+        "if|elif|else|for|while|match|break|continue|pass|return|class|class_name|extends|is|in|as|self|super|signal|func|static|const|enum|var|breakpoint|preload|await|yield|assert|true|false|null|and|or|not|void|PI|TAU|INF|NAN";
+      const types =
+        "int|float|bool|String|StringName|NodePath|Vector2|Vector2i|Vector3|Vector3i|Vector4|Vector4i|Color|Dictionary|Array|PackedByteArray|PackedInt32Array|PackedInt64Array|PackedFloat32Array|PackedFloat64Array|PackedStringArray|PackedVector2Array|PackedVector3Array|PackedColorArray|Rect2|Rect2i|Transform2D|Transform3D|Basis|Quaternion|AABB|Plane|Callable|Signal|Object|RefCounted|Resource|Node|Node2D|Node3D|Control|CanvasItem|CanvasLayer|SceneTree|Window|Viewport|Camera2D|Camera3D|Sprite2D|Sprite3D|AnimatedSprite2D|CharacterBody2D|CharacterBody3D|RigidBody2D|RigidBody3D|StaticBody2D|StaticBody3D|Area2D|Area3D|CollisionShape2D|CollisionShape3D|RectangleShape2D|CircleShape2D|CapsuleShape2D|Label|Button|LineEdit|TextEdit|RichTextLabel|Texture2D|TextureRect|PackedScene|Timer|Tween|AudioStreamPlayer|AudioStreamPlayer2D|AudioStreamPlayer3D|AnimationPlayer|AnimationTree|TileMap|TileMapLayer|Input|InputEvent|OS|Engine|ProjectSettings|FileAccess|DirAccess|JSON|RandomNumberGenerator|HTTPRequest|HTTPClient|Thread|Mutex|Semaphore";
+      const builtins =
+        "print|printerr|printraw|print_debug|print_rich|printt|prints|printv|push_error|push_warning|str|int|float|bool|len|range|load|preload|instantiate|connect|emit_signal|call|call_deferred|get_node|get_parent|queue_free|randi|randf|randi_range|randf_range|rand_from_seed|clamp|clampi|clampf|lerp|lerpf|abs|absi|absf|min|mini|minf|max|maxi|maxf|round|roundi|floor|floori|ceil|ceili|sqrt|pow|sin|cos|tan|asin|acos|atan|atan2|deg_to_rad|rad_to_deg|wrapi|wrapf|snapped|snappedi|snappedf|sign|signi|signf|is_instance_valid|weakref|type_exists|is_instance_of|hash|instance_from_id|breakpoint";
+      return new LanguageSupport(
+        StreamLanguage.define(
+          simpleMode({
+            start: [
+              { regex: /#[^\n]*/, token: "comment" },
+              { regex: /[&^r]?"""/, token: "string", push: "tripleDouble" },
+              { regex: /[&^r]?'''/, token: "string", push: "tripleSingle" },
+              { regex: /[&^r]?"/, token: "string", push: "double" },
+              { regex: /[&^r]?'/, token: "string", push: "single" },
+              { regex: /@[A-Za-z_]\w*/, token: "meta" },
+              { regex: /\$[A-Za-z0-9_\/%.]+/, token: "variableName" },
+              { regex: /%[A-Za-z_]\w*/, token: "variableName" },
+              { regex: /0[xX][0-9a-fA-F_]+/, token: "number" },
+              { regex: /0[bB][01_]+/, token: "number" },
+              { regex: /\d[\d_]*(?:\.[\d_]*)?(?:[eE][+-]?\d+)?/, token: "number" },
+              { regex: new RegExp(`\\b(?:${keywords})\\b`), token: "keyword" },
+              { regex: new RegExp(`\\b(?:${types})\\b`), token: "typeName" },
+              { regex: new RegExp(`\\b(?:${builtins})\\b`), token: "variableName" },
+              { regex: /\b[A-Za-z_]\w*(?=\s*\()/, token: "variableName" },
+              { regex: /\b[A-Z][A-Za-z0-9_]*\b/, token: "typeName" },
+              { regex: /[{}()[\]]/, token: "punctuation" },
+              { regex: /[+\-*/%<>=!&|^~?:]/, token: "operator" },
+              { regex: /\b[A-Za-z_]\w*/, token: null },
+            ],
+            double: [
+              { regex: /[^"\\]+/, token: "string" },
+              { regex: /\\./, token: "string" },
+              { regex: /"/, token: "string", pop: true },
+            ],
+            single: [
+              { regex: /[^'\\]+/, token: "string" },
+              { regex: /\\./, token: "string" },
+              { regex: /'/, token: "string", pop: true },
+            ],
+            tripleDouble: [
+              { regex: /"""/, token: "string", pop: true },
+              { regex: /[^"]+/, token: "string" },
+              { regex: /"+/, token: "string" },
+            ],
+            tripleSingle: [
+              { regex: /'''/, token: "string", pop: true },
+              { regex: /[^']+/, token: "string" },
+              { regex: /'+/, token: "string" },
+            ],
+          }),
+        ),
+      );
     }
     case "liquid": {
       const { liquid } = await import("@codemirror/lang-liquid");

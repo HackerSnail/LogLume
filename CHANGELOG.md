@@ -2,6 +2,12 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-09 — 补 GDScript（Godot）高亮
+
+**Files:** Modify `app/frontend/src/language.ts`（新增 `gdscript` 模式：基于 `simpleMode` 实现关键字、内置类型/函数、注解、`$NodePath`、`%Unique`、单/双/三引号字符串、数字、注释；`.gd/.gdscript` 自动识别）；Modify `app/frontend/src/language.test.ts`（映射与 GDScript 示例）；Modify `app/frontend/src/docKind.ts`（gd/gdscript 同步为非日志）。
+**Why:** 用户澄清「gdot 做游戏的」指 Godot 的 GDScript，不是 Graphviz DOT；npm 上没有现成的 CodeMirror 6 GDScript 包，因此用 `simpleMode` 实现真实语法，不用其他语言冒充。
+**验证:** `npx tsc --noEmit` 通过；全量 `npx vitest run` 37 文件 / 289 tests 全绿；`npm ci --dry-run` 通过。
+
 ## 2026-11-09 — 补 Graphviz DOT 高亮（社区包 @viz-js/lang-dot）
 
 **Files:** Modify `app/frontend/package.json` + `package-lock.json`（新增 `@viz-js/lang-dot@1.0.5`）；Modify `app/frontend/src/language.ts`（新增 `dot` 模式，`.dot/.gv` 自动识别）；Modify `app/frontend/src/language.test.ts`（映射与 `digraph` 解析断言）；Modify `app/frontend/src/docKind.ts`（dot/gv 同步为非日志）。
