@@ -1145,6 +1145,25 @@ pub fn git_remote_set_url(root: &Path, name: &str, url: &str) -> Result<(), Stri
         .map_err(|e| format!("[git]更新远端地址失败：{e}"))
 }
 
+/// Remove one remote from this repository only: its config section, its
+/// `refs/remotes/<name>/*` tracking refs and any `branch.*.remote` /
+/// `branch.*.merge` entries that pointed at it go away, exactly like
+/// `git remote remove`. Nothing is sent over the network, so the server-side
+/// repository and branches are untouched.
+pub fn git_remote_remove(root: &Path, name: &str) -> Result<Vec<GitRemoteInfo>, String> {
+    let repo = open_repo(root)?;
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("[git_invalid_name]远端名不能为空".to_string());
+    }
+    if repo.find_remote(name).is_err() {
+        return Err(format!("[git]远端不存在：{name}"));
+    }
+    repo.remote_delete(name)
+        .map_err(|e| format!("[git]移除远端失败：{e}"))?;
+    git_remotes(root)
+}
+
 /// Credentials come from the system git setup only: the configured
 /// `credential.helper` (HTTPS) or the running SSH agent. There is no token in
 /// this codebase; when neither is available the callback fails loudly.
@@ -2003,6 +2022,37 @@ mod tests {
             .unwrap_err()
             .starts_with("[git]"));
         assert!(git_remote_status(dir).unwrap().has_remote);
+    }
+
+    #[test]
+    fn remote_remove_reports_remaining_and_rejects_unknown() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        fs::write(dir.join("a.log"), "one\n").unwrap();
+        git_init(dir).unwrap();
+        git_remote_add(dir, "origin", "https://example.com/a.git").unwrap();
+        git_remote_add(dir, "backup", "git@github.com:me/b.git").unwrap();
+
+        let left = git_remote_remove(dir, "origin").unwrap();
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].name, "backup");
+
+        // Unknown (and already removed) names fail loudly, not silently.
+        assert!(git_remote_remove(dir, "origin")
+            .unwrap_err()
+            .starts_with("[git]远端不存在"));
+        assert!(git_remote_remove(dir, "  ")
+            .unwrap_err()
+            .starts_with("[git_invalid_name]"));
+
+        // Removing the last remote leaves the repo with no remotes at all.
+        let left = git_remote_remove(dir, "backup").unwrap();
+        assert!(left.is_empty());
+        assert!(git_remotes(dir).unwrap().is_empty());
+        let status = git_remote_status(dir).unwrap();
+        assert!(!status.has_remote);
+        assert!(status.remote.is_none());
+        assert!(status.url.is_none());
     }
 
     #[test]

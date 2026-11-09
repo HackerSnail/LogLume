@@ -921,6 +921,29 @@ html.has-custom-titlebar .win-btns {
   font-size: 11.5px;
   line-height: 1.4;
 }
+/* Danger slot: its own row above the buttons so a red action is never adjacent
+ * to "保存/确定" and never picked up by Enter or initial focus. */
+.prompt-danger-row {
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.prompt-danger-btn {
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--danger);
+  font-size: 12px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.prompt-danger-btn:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.prompt-danger-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
 .prompt-row {
   display: flex;
   gap: 8px;

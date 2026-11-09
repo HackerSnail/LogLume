@@ -136,4 +136,70 @@ describe("promptDialog", () => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     await expect(p).resolves.toBeNull();
   });
+
+  it("puts the danger action in its own row, never focused, and only closes on true", async () => {
+    let release!: (ok: boolean) => void;
+    const run = vi.fn(
+      () =>
+        new Promise<boolean>((r) => {
+          release = r;
+        }),
+    );
+    const p = promptDialog({
+      title: "编辑远端 origin",
+      fields: [{ key: "url", value: "https://example.com/a.git" }],
+      danger: { label: "移除这个远端…", run },
+    });
+
+    const row = box().querySelector<HTMLElement>(".prompt-danger-row")!;
+    const btn = row.querySelector<HTMLButtonElement>(".prompt-danger-btn")!;
+    expect(btn.textContent).toBe("移除这个远端…");
+    // Own row directly above the button row, and the first field keeps focus.
+    expect(row.nextElementSibling?.classList.contains("prompt-row")).toBe(true);
+    expect(document.activeElement).toBe(input());
+
+    btn.click();
+    await settle();
+    expect(run).toHaveBeenCalledWith({ url: "https://example.com/a.git" });
+    // Pending danger locks every control, including the red one.
+    expect(btn.disabled).toBe(true);
+    expect(input().disabled).toBe(true);
+
+    // false keeps the dialog open with the typed values intact.
+    release(false);
+    await settle();
+    expect(document.querySelector(".prompt-box")).not.toBeNull();
+    expect(btn.disabled).toBe(false);
+    expect(input().value).toBe("https://example.com/a.git");
+
+    btn.click();
+    await settle();
+    release(true);
+    await expect(p).resolves.toEqual({ url: "https://example.com/a.git" });
+    expect(document.querySelector(".prompt-box")).toBeNull();
+  });
+
+  it("shows a thrown danger error inline and keeps the dialog open", async () => {
+    const p = promptDialog({
+      title: "t",
+      fields: [{ key: "x" }],
+      danger: {
+        label: "删除",
+        run: async () => {
+          throw new Error("远端不存在：origin");
+        },
+      },
+    });
+
+    box().querySelector<HTMLButtonElement>(".prompt-danger-btn")!.click();
+    await settle();
+
+    const formErr = box().querySelector<HTMLElement>(".prompt-form-err")!;
+    expect(formErr.hidden).toBe(false);
+    expect(formErr.textContent).toBe("远端不存在：origin");
+    expect(box().querySelector<HTMLButtonElement>(".prompt-danger-btn")!.disabled).toBe(false);
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    await expect(p).resolves.toBeNull();
+  });
 });

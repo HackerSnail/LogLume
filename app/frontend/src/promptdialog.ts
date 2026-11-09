@@ -28,6 +28,16 @@ export interface PromptOptions {
   confirmLabel?: string;
   cancelLabel?: string;
   /**
+   * Irreversible action, rendered in its own red row above the buttons (never
+   * focused by default, never next to `confirmLabel`). `run` must return true
+   * for the dialog to close; false/null keeps it open. Throwing shows the
+   * message inline, exactly like `onSubmit`.
+   */
+  danger?: {
+    label: string;
+    run: (values: Record<string, string>) => Promise<boolean>;
+  };
+  /**
    * Runs after local validation passes. Throwing keeps the dialog open and
    * shows the thrown message inline, so backend rejections never close the
    * form or lose what the user typed.
@@ -105,6 +115,19 @@ export function promptDialog(options: PromptOptions): Promise<Record<string, str
     formErr.hidden = true;
     box.append(formErr);
 
+    // Danger slot: own row, separated by a divider, left-aligned and red, so it
+    // can never be hit by muscle memory aimed at "确定".
+    let dangerBtn: HTMLButtonElement | null = null;
+    if (options.danger) {
+      const dangerRow = div("prompt-danger-row");
+      dangerBtn = document.createElement("button");
+      dangerBtn.type = "button";
+      dangerBtn.className = "prompt-danger-btn";
+      dangerBtn.textContent = options.danger.label;
+      dangerRow.append(dangerBtn);
+      box.append(dangerRow);
+    }
+
     const row = div("prompt-row");
     const cancel = document.createElement("button");
     cancel.type = "button";
@@ -142,6 +165,7 @@ export function promptDialog(options: PromptOptions): Promise<Record<string, str
       busy = on;
       confirm.disabled = on;
       cancel.disabled = on;
+      if (dangerBtn) dangerBtn.disabled = on;
       for (const input of inputs.values()) input.disabled = on;
       confirm.textContent = on ? "处理中…" : options.confirmLabel ?? "确定";
       box.classList.toggle("busy", on);
@@ -184,6 +208,23 @@ export function promptDialog(options: PromptOptions): Promise<Record<string, str
       }
     };
 
+    const danger = options.danger;
+
+    const runDanger = async (): Promise<void> => {
+      if (!danger || busy || done) return;
+      formErr.hidden = true;
+      setBusy(true);
+      try {
+        const ok = await danger.run(readValues());
+        if (ok) close(readValues());
+        else setBusy(false);
+      } catch (err) {
+        setBusy(false);
+        formErr.textContent = err instanceof Error ? err.message : String(err);
+        formErr.hidden = false;
+      }
+    };
+
     function onKey(e: KeyboardEvent): void {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -200,6 +241,7 @@ export function promptDialog(options: PromptOptions): Promise<Record<string, str
 
     confirm.addEventListener("click", () => void submit());
     cancel.addEventListener("click", () => close(null));
+    dangerBtn?.addEventListener("click", () => void runDanger());
     overlay.addEventListener("pointerdown", (e) => {
       if (e.target === overlay && !busy) close(null);
     });

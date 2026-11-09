@@ -125,6 +125,7 @@ pub fn run() {
             commands::git_remotes,
             commands::git_remote_add,
             commands::git_remote_set_url,
+            commands::git_remote_remove,
             commands::git_fetch,
             commands::git_pull,
             commands::git_push,

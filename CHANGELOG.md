@@ -2,6 +2,21 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-09 — 删除远端（feat/git-remote-remove）
+
+**依据：** 用户要求把删除远端做成编辑弹层里的独立危险操作，不放在同步行上；确认文案必须说清“只移除本地配置，不删服务器仓库/分支”，并要求输入远端名二次确认。
+
+### Task. 后端 `git_remote_remove`
+**Files:** Modify `app/src-tauri/src/gitinfo.rs`（`git_remote_remove(root, name) -> Result<Vec<GitRemoteInfo>, String>`：空名 `[git_invalid_name]远端名不能为空`，不存在 `[git]远端不存在：{name}`，失败 `[git]移除远端失败：{e}`；成功后返回剩余远端。内部 `repo.remote_delete`，不发起任何网络请求，不触碰服务器端仓库/分支；补 `remote_remove_reports_remaining_and_rejects_unknown`）；Modify `app/src-tauri/src/commands.rs`（async + `spawn_blocking`）、`app/src-tauri/src/lib.rs`（注册）。
+**Why/边界:** 与 `git remote remove` 语义一致——删除 `remote.<name>.*` 配置、`refs/remotes/<name>/*` 本地跟踪引用，以及指向它的 `branch.*.remote` / `branch.*.merge`（libgit2 `remote_delete` 的实际行为，真实窗口已验证）。只有一个远端时同样允许删除，删完即“未配置远端”。
+
+### Task. 前端危险入口与二次确认
+**Files:** Modify `app/frontend/src/ipc.ts`（`gitRemoteRemove`）；Modify `app/frontend/src/promptdialog.ts`（新增 `danger?: {label, run}`：独占一行、前面有分隔线、红色左对齐、默认不聚焦、不与“保存/确定”同排；`run` 返回 true 才关闭，false/null 保持打开，抛错沿用 `.prompt-form-err` 行内显示，处理中连同危险按钮一起禁用）；Modify `app/frontend/src/styles.css`（`.prompt-danger-row` / `.prompt-danger-btn`）；Modify `app/frontend/src/gitpanel.ts`（`editRemote` 底部“移除这个远端…”，`removeRemote` 嵌套二次确认：标题“移除远端 {name}？”，文案明确“只移除本地配置，不会删除远端服务器上的仓库或分支，也不会发起网络请求。本地跟踪分支（如 origin/main）会一并移除，下次获取时重建。”，并要求严格输入远端名，错名行内报错）。删除成功后 `load()` 让同步区回到“未配置远端 + 添加远端”；失败时嵌套弹层保持打开并显示错误，同步区不变。
+**Why:** 一键删除风险太高；入口与保存分离，避免误触。删除只是本地配置操作，因此失败时不做任何乐观更新。
+
+**验证:** `cargo test --workspace` 363 passed / 1 ignored / 0 failed（app crate 161，含新增 1 例）；`cargo check --workspace` 通过；`npm test` 250 passed（32 文件，promptdialog 7 + gitpanel 12）；`npm run build` 通过。真实窗口（CDP `:9222`）：编辑 origin → 危险按钮独立成行、焦点仍在地址输入 → 点击弹出二次确认（文案/placeholder `origin`）→ 空值与错名均行内拦截 → 输入 `origin` 后删除，两个弹层关闭、同步区变“未配置远端 / 添加远端”。仓库侧确认 `remote.origin.*`、`refs/remotes/origin/main` 已清除，随后按快照恢复 `remote.origin.url/fetch`、`branch.main.remote/merge` 与 `refs/remotes/origin/main`，刷新面板回到 `origin · feat/git-remote-remove`。
+**未做:** 远端改名；不在删除前联网校验服务器端是否仍存在（按需求不发起网络请求）。
+
 ## 2026-11-09 — 新建分支 / 远端地址对话框（feat/git-dialogs）
 
 **依据：** NoteLume `src/prompt-dialog.js`（约 420px、radius 10、`0 12 40` 阴影、遮罩、Enter/Esc、行内错误）与 `src/git-panel.js` 的新建分支 / 远端编辑入口。
