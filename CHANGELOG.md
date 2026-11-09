@@ -2,6 +2,16 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-09 — 界面重做：参考 NoteLume 的桌面外壳（feat/ui-notelume）
+
+**依据：** `docs/plans/2026-11-09-ui-notelume-redesign.md`（读 NoteLume `src/style.css` / `index.html` 后按区域列出的施工图）。纯前端样式与 DOM 钩子，Rust 零改动。
+
+### Task. 三主题 token + 控件基线 + 标题栏/侧栏/标签条/检查器/内容区/查询面板/状态栏/弹层
+**Files:** Modify `app/frontend/src/styles.css`（三主题源变量重写：三层色阶 `bg/bg-panel/bg-elevated`、`accent-soft`/`selection`/`shadow-1..3`/`overlay`、圆角与 4px 间距/字号/时长/z-index token，旧变量名保留为别名；`:where()` 零特异性控件基线覆盖 button/input/select/textarea + `:focus-visible` + `::selection`；`.appbar` 40px + 三组按钮 + 分组竖线 + 品牌圆点，窗口按钮 46×32 无圆角；侧栏 280 / 检查器 288、去掉左右边框改底色分区、30px 行 + 选中 3px 竖条 + `side-foot`；标签条 34px、active 页签与编辑区连体、新增 `.tab-x`；检查器 84px key 列、去掉逐行下划线、标签胶囊；编辑器/虚拟列表 12.5px/20px、gutter 透明、正文 12px 左内距；CAN/MF4 表格去竖分隔线 + 斑马纹 + 2px 表头；查询面板 28px 控件 + 条件网格；状态栏 28px + 幽灵下拉 + 20px 跟随胶囊；palette/模态/toast/恢复条统一 `bg-elevated + shadow-3 + r-lg`，90–160ms 过渡）；Modify `app/frontend/index.html`（内联 SVG sprite，14 个 `symbol`，`currentColor` 描边）；Modify `app/frontend/src/main.ts`（`icon()`/`appbarSep()`，`mkBtn` 支持 icon-only；工具条分三组：打开/查询/报文/测量/查看｜脚本/解析｜侧栏/信息/主题；窗口按钮换 sprite；侧栏标题计数 + `side-foot` 包裹「崩溃恢复 / 快捷键设置」；`side-name`；查询面板 opts/actions 分组）；Modify `app/frontend/src/tabs.ts`（16×16 `.tab-x`，复用 `requestClose` 并 `stopPropagation`）。
+**Why:** NoteLume 的精致来自统一的最小替换单元（1 套 token / 1 套图标 / 4 档圆角 / 3 档阴影 / 1 种 hover），不是单个炫技样式。LogLume 旧外壳的硬伤：原生控件无基线（系统边框与字体混进自定义面板）、工具条 10 个等权文字按钮、标题栏与工具条无视觉关系、边框泛滥、浅色底色差仅 1.6%、全站只有 1 条 transition。控件基线用 `:where()` 保持零特异性，避免压过 35KB 既有组件规则。
+**验证:** `npm test` 231 pass（30 文件）；`npm run build`（`tsc --noEmit` + vite）通过；`cargo check --workspace` 通过（纯前端改动未被牵连）；浏览器（vite :1420）浅色与暗色两轮截图确认标题栏三组、侧栏层级、状态栏、toast 正常；`listview.ts` 的 `ROW_HEIGHT=20` 与 `.can-hrow` 20px 未动。
+**未验:** 实机 `npm run tauri dev` 下窗口按钮（sprite）与标签关闭交互需人工过；打开文档后的编辑器/表格截图未覆盖（浏览器无法调 Tauri 文件对话框）。
+
 ## 2026-10-31 — Plan 46 替换预览（feat/replace-preview）
 
 **依据：** `docs/specs/2026-10-31-replace-preview-design.md`（同类盘点第二梯队之四）。纯前端，Rust 零改动。
