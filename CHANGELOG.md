@@ -2,6 +2,12 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-10 — 补 README、同步推送 Gitee 与合并解析
+
+**Files:** Add `README.md`（项目定位、能力清单、技术栈、目录结构、环境要求、安装/运行/构建/测试命令、macOS 原生菜单与窗口说明、双仓库推送约定）；Modify `CHANGELOG.md`（本条目）；前序提交 `c50b3a3` 含合并远程语法高亮系列后的解析：删除 `app/frontend/src/main.ts` 中与远程 `contextmenu.ts` 重复的简易中文右键菜单、恢复 `styles.css` 原有 `.app-menu` 样式、同步 `package-lock.json` 新增语言包依赖；`e56015f` 为远程 `main` 的三方合并提交。
+**Why:** 用户 clone Gitee 仓库后看到仍停在 `a5b4877`，因为此前只推送了 GitHub；README 缺失导致项目无法按说明运行。同时补齐 Gitee 远程并推送，使两个仓库一致。
+**验证:** `npm ci --dry-run` 通过；`npx tsc --noEmit` 通过；`npm test` 37 文件 / 289 tests 全绿；`cargo check -p lumelog-app` 通过；`git ls-remote origin refs/heads/main` 与 Gitee `main` 均核对提交一致。
+
 ## 2026-11-09 — 自实现 Astro / HCL(Terraform) / Zig 高亮
 
 **Files:** Modify `app/frontend/src/language.ts`（新增 `astro`/`hcl`/`zig` 三个 `simpleMode` 模式：Astro 覆盖 `---` frontmatter、HTML 标签/属性/注释、`{}` 表达式；HCL 覆盖 `resource/data/...`、块标签、`key = value`、字符串与 `${}` 插值、heredoc、注释；Zig 覆盖关键字/基础类型/`@builtin`/error set/多行 `\\` 字符串/数字/注释；`.astro/.hcl/.tf/.tfvars/.zig/.zon` 自动识别）；Modify `app/frontend/src/language.test.ts`（映射与三语言示例）；Modify `app/frontend/src/docKind.ts`（同步非日志）。
