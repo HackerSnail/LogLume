@@ -54,7 +54,7 @@ ROOT="$PWD"
   --config "{\"build\":{\"beforeDevCommand\":\"npm --prefix $ROOT/app/frontend run dev\"}}"
 ```
 
-开发服务器在 `http://localhost:1420`，首次编译 Rust 依赖要几分钟。只看界面、不需要 Tauri IPC 时，可以在 `app/frontend` 下执行 `npm run dev` 用浏览器打开，此时文件选择、Git 等原生能力会提示不可用。
+开发服务器在 `http://localhost:1520`，首次编译 Rust 依赖要几分钟。只看界面、不需要 Tauri IPC 时，可以在 `app/frontend` 下执行 `npm run dev` 用浏览器打开，此时文件选择、Git 等原生能力会提示不可用。
 
 **构建与测试**：
 

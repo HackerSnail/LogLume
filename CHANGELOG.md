@@ -2,6 +2,12 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-10 — 开发端口改为 1520，避开 NoteLume
+
+**Files:** Modify `app/frontend/vite.config.ts`（`server.port` 1420 → 1520，`strictPort: true` 保留；注释写明与 NoteLume 的 1420 分开）；Modify `app/src-tauri/tauri.conf.json`（`build.devUrl` 同步为 `http://localhost:1520`）；Modify `README.md`（开发服务器地址同步）；Modify `CHANGELOG.md`（本条目）。
+**Why:** NoteLume 的 dev server 也固定在 1420，两个应用同时打开时会抢端口；本项目改到 1520 后两边可以同时跑。
+**验证:** 用 Vite 的 `loadConfigFromFile` 加载 `vite.config.ts`，得到 `VITE_PORT=1520 STRICT=true`；`tauri.conf.json` 读回 `TAURI_DEVURL=http://localhost:1520`；`npm test` 37 文件 / 292 tests 全绿（`TEST_EXIT=0`）；`Get-NetTCPConnection -LocalPort 1520 -State Listen` 显示端口空闲，验证时启动的 Vite 进程没有残留。`docs/plans/2026-10-24-m0-m1-editor-core.md` 里的 1420 是当时的计划记录，未改。
+
 ## 2026-11-10 — 定中文名「澄章」，写进 README
 
 **Files:** Modify `README.md`（标题 `LogLume · LumeLog` 改为 `LogLume · 澄章`；简介里 `LogLume 既是……` 改为 `LogLume（中文名「澄章」）既是……`；README 里不再出现 `LumeLog` 字样，`com.lumelog.desktop`、`lumelog-core` 等标识与 crate 名保持原样）；Modify `CHANGELOG.md`（本条目）。
