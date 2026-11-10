@@ -2,6 +2,12 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-10 — 定中文名「澄章」，写进 README
+
+**Files:** Modify `README.md`（标题 `LogLume · LumeLog` 改为 `LogLume · 澄章`；简介里 `LogLume 既是……` 改为 `LogLume（中文名「澄章」）既是……`；README 里不再出现 `LumeLog` 字样，`com.lumelog.desktop`、`lumelog-core` 等标识与 crate 名保持原样）；Modify `CHANGELOG.md`（本条目）。
+**Why:** 用户定下产品中文名为「澄章」。此前 README 标题沿用 `LumeLog` 作副名，没有中文名，和参考的 NoteLume README（`NoteLume · 文溯`）写法不一致。
+**验证:** 纯文档改动，未跑测试。`Select-String` 核对「澄章」出现在 README 第 1、11 行，`LumeLog` 字样 0 处；`git diff --stat -- README.md` 为 +2 / -2。
+
 ## 2026-11-10 — 重写 README，对齐 NoteLume 的章节与语气
 
 **Files:** Modify `README.md`（按 https://gitee.com/hackerSnail/note-lume 的 README 结构重写：居中标题与一句话定位、简介对比 VS Code / Notepad++ / Sublime / Notepad--、功能亮点、快速开始（平台产物表、从源码运行命令、构建与测试）、快捷键表、技术栈、目录结构、配置、贡献指南、许可证；只写文字，不放图片、徽章、视频和 English 段落；仓库链接与 clone 地址统一为 `https://github.com/HackerSnail/LogLume`，目录名同步 `cd LogLume`；「适合谁用」把嵌入式 / HIL 工程师与普通开发者并列，去掉主次措辞）；Modify `CHANGELOG.md`（本条目）。
