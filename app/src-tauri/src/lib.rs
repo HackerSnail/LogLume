@@ -26,7 +26,7 @@ mod watch;
 pub fn run() {
     launch::collect();
     tauri::Builder::default()
-        .menu(|app| menu::build(app))
+        .menu(menu::build)
         .on_menu_event(|app, event| {
             use tauri::Emitter;
             let id = event.id().0.as_str();
@@ -35,6 +35,9 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            // windows: unused otherwise.
+            #[cfg(not(target_os = "macos"))]
+            let _ = app;
             // AppKit appends English AutoFill / Dictation / Emoji items to the
             // Edit menu once the menu is installed; strip them after the run
             // loop is up (needs the main thread, so hop back from a timer).

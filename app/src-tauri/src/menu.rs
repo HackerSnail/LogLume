@@ -3,10 +3,13 @@
 //! UI runs the matching action, so all behavior stays in `main.ts` and this
 //! file only describes the structure (spec: thin IPC shell).
 
-use tauri::menu::{AboutMetadata, Menu, MenuItem, MenuItemBuilder, SubmenuBuilder};
+use tauri::menu::{Menu, MenuItem, MenuItemBuilder};
+#[cfg(target_os = "macos")]
+use tauri::menu::{AboutMetadata, SubmenuBuilder};
 use tauri::{AppHandle, Runtime};
 
 /// Menu item with an optional accelerator, bound to a `menu:`-prefixed id.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn mi<R: Runtime>(
     app: &AppHandle<R>,
     id: &str,

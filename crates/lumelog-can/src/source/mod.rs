@@ -38,6 +38,10 @@ pub(crate) fn hex_to_bytes(s: &str) -> Option<Vec<u8>> {
         .collect()
 }
 
+pub use asc::AscSource;
+pub use candump::CandumpSource;
+pub use regex_source::RegexSource;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -75,7 +79,3 @@ mod tests {
         assert_eq!(stats.skipped, 1, "malformed line counted, not silently dropped");
     }
 }
-
-pub use asc::AscSource;
-pub use candump::CandumpSource;
-pub use regex_source::RegexSource;

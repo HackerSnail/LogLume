@@ -376,8 +376,8 @@ pub fn error_text(v: &serde_json::Value) -> String {
         serde_json::Value::Object(_) => {
             let msg = v
                 .get("message")
-                .and_then(|m| error_text_opt(m))
-                .or_else(|| v.get("msg").and_then(|m| error_text_opt(m)))
+                .and_then(error_text_opt)
+                .or_else(|| v.get("msg").and_then(error_text_opt))
                 .unwrap_or_default();
             let code = v
                 .get("code")

@@ -2,6 +2,12 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-10 — 清掉 workspace clippy 存量告警
+
+**Files:** Modify `app/src-tauri/src/menu.rs`（`AboutMetadata`、`SubmenuBuilder` 按目标平台拆 import，仅供 macOS `build()` 用；`mi()` 加 `#[cfg_attr(not(target_os = "macos"), allow(dead_code))]`）；Modify `app/src-tauri/src/lib.rs`（`.menu(|app| menu::build(app))` 直接传 `menu::build`；`setup` 闭包在非 macOS 分支 `let _ = app;`）；Modify `app/src-tauri/src/ai.rs`（`error_text` 里 `.and_then(|m| error_text_opt(m))` 两处换成函数引用）；Modify `app/src-tauri/src/gitinfo.rs`（`assert_eq!(git_merge_state(&work).unwrap(), false)` 改 `assert!(!…)`）；Modify `crates/lumelog-can/src/source/mod.rs`（`pub use` 从测试模块后面移到 `hex_to_bytes` 之后）；Modify `CHANGELOG.md`（本条目）。
+**Why:** clippy 1.99 起默认启用了 `items_after_test_module`、`bool_assert_comparison`，加上 macOS 专用代码在 Windows 目标下剩出的未用 import/变量/函数，`cargo clippy --workspace --all-targets -- -D warnings` 一直过不去。改法都按告警建议，不动行为。
+**验证:** `cargo clippy --workspace --all-targets -- -D warnings` Finished，0 告警；`cargo test --workspace` 全绿 0 failed（lumelog-app 183 passed、lumelog-core 118 passed、cli_smoke 13 passed）；`cargo test -p lumelog-app -p lumelog-can` 复跑 183 passed / 0 failed。
+
 ## 2026-11-10 — 修只读列表空行、PDF 文本层、Git 网络错误码
 
 **Files:** Modify `app/frontend/src/ipc.ts`（新增 `oneShotChannel()`；`loadWindow`、`loadAllText`、`docSetEncoding` 改为等 Channel 消息落地后再读数据，带 2s 超时兜底）；Modify `app/frontend/src/pdfview.ts`（`renderTextLayer` 把 `{ items, styles: {}, lang: null }` 换成完整 `TextContent`，catch 里改调 `onError`；`render()` 的页面类型同步为 `getTextContent(): Promise<TextContent>`，删掉不再用的 `TextItem` 导入）；Modify `app/src-tauri/src/gitinfo.rs`（`map_remote_err` 拆出 `is_network_failure()`，加 `ErrorClass::Net` 与中文连接失败关键词；新增单测 `remote_error_classifies_network_messages`）；Modify `CHANGELOG.md`（本条目）。
