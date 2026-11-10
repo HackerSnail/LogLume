@@ -6,7 +6,7 @@
 // previous task instead of queueing.
 
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import type { TextContent, TextItem } from "pdfjs-dist/types/src/display/api";
+import type { TextContent } from "pdfjs-dist/types/src/display/api";
 
 /** Page numbers are 1-based; clamp into [1, total] (0/negative total → 1). */
 export function clampPage(page: number, total: number): number {
@@ -186,7 +186,7 @@ export class PdfView {
           canvasContext: CanvasRenderingContext2D;
           viewport: { width: number; height: number };
         }): { cancel(): void; promise: Promise<unknown> };
-        getTextContent(): Promise<{ items: TextItem[] }>;
+        getTextContent(): Promise<TextContent>;
       }>;
       destroy(): Promise<void>;
     };
@@ -348,7 +348,7 @@ export class PdfView {
   private renderTextLayer(
     pdfjs: typeof import("pdfjs-dist"),
     pdfPage: {
-      getTextContent(): Promise<{ items: TextItem[] }>;
+      getTextContent(): Promise<TextContent>;
       getViewport(o: { scale: number }): unknown;
     },
     scale: number,
@@ -366,16 +366,18 @@ export class PdfView {
       try {
         const textContent = await pdfPage.getTextContent();
         if (this.destroyed || this.textLayer !== layer) return;
-        const source: TextContent = { items: textContent.items, styles: {}, lang: null };
         const cssViewport = pdfPage.getViewport({ scale });
+        // TextLayer looks up styles[fontName] for every item. Passing only
+        // items with an empty styles made it throw on the first span and left
+        // the layer empty, so hand it the whole TextContent.
         const tl = new pdfjs.TextLayer({
-          textContentSource: source,
+          textContentSource: textContent,
           container: layer,
           viewport: cssViewport as never,
         });
         await tl.render();
-      } catch {
-        // A superseded layer or a page with no text: selection is optional.
+      } catch (e) {
+        this.opts.onError(`PDF 文本层渲染失败：${String(e)}`);
       }
     })();
   }

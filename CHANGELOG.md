@@ -2,6 +2,17 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-10 — 修只读列表空行、PDF 文本层、Git 网络错误码
+
+**Files:** Modify `app/frontend/src/ipc.ts`（新增 `oneShotChannel()`；`loadWindow`、`loadAllText`、`docSetEncoding` 改为等 Channel 消息落地后再读数据，带 2s 超时兜底）；Modify `app/frontend/src/pdfview.ts`（`renderTextLayer` 把 `{ items, styles: {}, lang: null }` 换成完整 `TextContent`，catch 里改调 `onError`；`render()` 的页面类型同步为 `getTextContent(): Promise<TextContent>`，删掉不再用的 `TextItem` 导入）；Modify `app/src-tauri/src/gitinfo.rs`（`map_remote_err` 拆出 `is_network_failure()`，加 `ErrorClass::Net` 与中文连接失败关键词；新增单测 `remote_error_classifies_network_messages`）；Modify `CHANGELOG.md`（本条目）。
+**Why:** 242MB 日志的只读虚拟列表行号正常但行文本为空：Tauri Channel 的回调走独立通道，实测 `doc_chunk` 的 invoke 2ms resolve、消息 3ms 才到，前端在 `await` 后立刻读变量拿到 undefined。PDF 文本层为空：pdf.js 的 `TextLayer.#appendText` 会查 `styles[fontName]`，传空的 `styles` 让它抛 TypeError，异常被 `catch {}` 吞掉，换成系统里 6 页的标准 PDF 也一样。Git 远端不可达返回 `code:"git"`：`map_remote_err` 只匹配英文关键词，中文 Windows 的 libgit2 返回「无法与服务器建立连接」时落到默认分支。
+**验证:** `npx tsc --noEmit` exit 0；`npx vitest run` 304 passed / 39 suites；`cargo test -p lumelog-app` 183 passed（含新增单测）；`cargo build -p lumelog-app` 4.98s。真实 Tauri 窗口（debug + Vite dev + CDP 9222）复测：242,808,915B 日志的 `.list-text` 前 6 行显示真实日志文本；标准 6 页 268KB PDF 的 `div.textLayer` children=141 / spans=105 / 文本含 `Page 1 of 6`，搜索 `license` 命中 38；`git_fetch` 对 `https://127.0.0.1:9/no.git` 返回 `code:"network"`「无法连接远端：…」。
+
+## 2026-11-10 — CLI 参数校验与输出修 4 处
+
+**Files:** Modify `crates/lumelog-core/src/bin/lumelog.rs`（`parse()` 新增 `is_negative_integer()`，负整数按值解析；`open_doc` 拒绝空 `--file`；`cmd_open` 把 `--head` 校验提到写 JSON 摘要之前，并按行去掉 CRLF 的 `\r`；`--max` 非法值改报 `--max must be a non-negative integer`）；Modify `crates/lumelog-core/tests/cli_smoke.rs`（新增 4 条：空 `--file`、`--head` 非法值不写摘要、CRLF `--head` 去 CR、`--max` 负值提示）；Modify `CHANGELOG.md`（本条目）。
+**Why:** 用例执行时发现 `--head abc` 先输出半截摘要再报错；`--max -1` 被当成新选项报 `unknown option '--1'`；空 `--file` 交给系统报「找不到指定的路径」；CRLF 文件 `--head` 输出夹带 `\r`。
+**验证:** `cargo test -p lumelog-core -p lumelog-can` 210 passed / 0 failed / 1 ignored（cli_smoke 13 passed）；`cargo test -p lumelog-app` 182 passed；`npx vitest run` 292 passed；`cargo clippy -p lumelog-core --all-targets -- -D warnings` 无警告；重跑 DOC-11、DOC-21、DOC-22、SRC-10 及相关回归命令，输出与预期一致。
 ## 2026-11-10 — 补人读版测试用例文档
 
 **Files:** Add `docs/reviews/2026-11-10-real-test-cases.md`（范围与环境、统计、33 条速查表、按模块分组的逐条明细（标签/前置条件/测试数据/步骤/预期结果/实际结果/判定）、未通过与部分验证、疑似缺陷复核、观察项、证据文件、复跑门禁命令；与 `docs/reviews/2026-11-10-real-test-cases.json` 逐条同源，JSON 保留作 `case-gate.js` 的机器可读输入）；Modify `CHANGELOG.md`（本条目）。

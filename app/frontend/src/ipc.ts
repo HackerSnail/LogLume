@@ -388,6 +388,38 @@ export function searchCancel(requestId: number): Promise<void> {
   return call<void>("search_cancel", { requestId });
 }
 
+/**
+ * `doc_chunk` / `doc_set_encoding` deliver their payload over a Tauri
+ * `Channel`. The channel callback runs separately from the invoke response and
+ * can land a tick later, so callers wait for the payload instead of reading it
+ * immediately after `await`. `settle` also propagates an invoke rejection.
+ */
+function oneShotChannel<T>(onMessage: (m: T) => void): {
+  ch: Channel<T>;
+  settle: (invokeDone: Promise<unknown>) => Promise<void>;
+} {
+  const ch = new Channel<T>();
+  let notify!: () => void;
+  const arrived = new Promise<void>((resolve) => {
+    notify = resolve;
+  });
+  ch.onmessage = (m) => {
+    onMessage(m);
+    notify();
+  };
+  return {
+    ch,
+    settle: async (invokeDone: Promise<unknown>) => {
+      await invokeDone;
+      // Fallback for a command that sent nothing: never hang the list view.
+      await Promise.race([
+        arrived,
+        new Promise<void>((resolve) => setTimeout(resolve, 2000)),
+      ]);
+    },
+  };
+}
+
 /** Concatenate every `doc_chunk` block for `[0, totalLines)` — edit-mode full load. */
 export async function loadAllText(
   docId: number,
@@ -398,14 +430,13 @@ export async function loadAllText(
   let invalid = 0;
   for (let start = 0; start < totalLines; start += blockLines) {
     const count = Math.min(blockLines, totalLines - start);
-    const ch = new Channel<ChunkPayload>();
-    ch.onmessage = (c) => {
+    const { ch, settle } = oneShotChannel<ChunkPayload>((c) => {
       text += c.text;
       invalid += c.invalidCount;
-    };
+    });
     // No manual release: the JS `Channel` unregisters its callback as soon as
     // the Rust command returns and drops its `Channel` (the `end` marker).
-    await docChunk(docId, start, count, ch);
+    await settle(docChunk(docId, start, count, ch));
   }
   return { text, invalidCount: invalid };
 }
@@ -422,17 +453,15 @@ export function docSetEncoding(
   totalLines: number,
   onData: (c: ChunkPayload) => void,
 ): Promise<DocInfo> {
-  const ch = new Channel<ChunkPayload>();
-  ch.onmessage = onData;
-  // The command's return drops the Rust `Channel`, which fires the `end` marker
-  // and unregisters this JS callback — nothing to release manually.
-  return call<DocInfo>("doc_set_encoding", {
+  const { ch, settle } = oneShotChannel<ChunkPayload>(onData);
+  const pending = call<DocInfo>("doc_set_encoding", {
     docId,
     encoding,
     lineStart: 0,
     lineCount: Math.max(1, Math.min(20000, totalLines)),
     onData: ch,
   });
+  return settle(pending).then(() => pending);
 }
 
 /** Release the shell-side document (closes handle + frees index/cache, I5). */
@@ -451,12 +480,11 @@ export async function loadWindow(
   start: number,
   count: number,
 ): Promise<{ first: number; lines: string[]; invalidCount: number }> {
-  const ch = new Channel<ChunkPayload>();
   let payload: ChunkPayload | undefined;
-  ch.onmessage = (c) => {
+  const { ch, settle } = oneShotChannel<ChunkPayload>((c) => {
     payload = c;
-  };
-  await docChunk(docId, start, count, ch);
+  });
+  await settle(docChunk(docId, start, count, ch));
   const p = payload;
   if (!p) return { first: start, lines: [], invalidCount: 0 };
   // The core keeps each line's raw terminator in the chunk text, so a CRLF

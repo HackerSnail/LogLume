@@ -176,6 +176,75 @@ fn bad_flag_value_is_usage_exit_2() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("--head must be a number"));
 }
 
+#[test]
+fn empty_file_flag_is_usage_exit_2() {
+    let out = lumelog()
+        .args(["open", "--file", "", "--line-count"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("--file must not be empty"), "stderr: {err}");
+    assert!(out.stdout.is_empty());
+}
+
+#[test]
+fn bad_head_value_prints_no_summary() {
+    ensure_sample();
+    let out = lumelog()
+        .args(["open", "--file", "tests/data/sample_gbk.log", "--head", "abc"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    assert!(
+        out.stdout.is_empty(),
+        "summary must not precede the usage error"
+    );
+}
+
+#[test]
+fn head_on_crlf_file_drops_carriage_return() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/_crlf_head.log");
+    fs::write(&path, b"line1\r\nline2\r\n").unwrap();
+    let out = lumelog()
+        .args(["open", "--file", path.to_str().unwrap(), "--head", "2"])
+        .output()
+        .unwrap();
+    fs::remove_file(&path).ok();
+    assert!(
+        out.status.success(),
+        "open failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!stdout.contains('\r'), "CR leaked into --head: {stdout:?}");
+    assert!(stdout.contains("line1\nline2\n"), "stdout: {stdout:?}");
+}
+
+#[test]
+fn negative_max_reports_range_error() {
+    ensure_sample();
+    let out = lumelog()
+        .args([
+            "search",
+            "--file",
+            "tests/data/sample_gbk.log",
+            "--pattern",
+            "INFO",
+            "--max",
+            "-1",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("--max must be a non-negative integer"),
+        "stderr: {err}"
+    );
+    assert!(!err.contains("unknown option"), "stderr: {err}");
+}
+
 /// Manual M0 P2/P3 smoke (opt-in): builds a ~1 GiB log and times the CLI
 /// `open` path end to end — the whole in-memory line index is built before the
 /// summary JSON returns, so the wall time is the P3 index-build reference. Run

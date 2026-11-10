@@ -3,7 +3,7 @@
 //! init/commit; the commit covers the whole index (same as the git CLI).
 
 use git2::{
-    BranchType, Cred, CredentialType, ErrorCode, FetchOptions, ObjectType,
+    BranchType, Cred, CredentialType, ErrorClass, ErrorCode, FetchOptions, ObjectType,
     PushOptions, RemoteCallbacks, Repository, RepositoryState, ResetType, Signature, Status,
 };
 use git2::build::CheckoutBuilder;
@@ -1199,20 +1199,28 @@ fn remote_callbacks<'a>() -> RemoteCallbacks<'a> {
     cb
 }
 
+/// libgit2 localises transport errors; a Chinese Windows build reports
+/// "无法与服务器建立连接" with `ErrorClass::None`, so check the class as well as
+/// the English keywords before falling back to the generic git code.
+fn is_network_failure(msg_lower: &str, class: ErrorClass) -> bool {
+    class == ErrorClass::Net
+        || msg_lower.contains("could not resolve host")
+        || msg_lower.contains("failed to connect")
+        || msg_lower.contains("timed out")
+        || msg_lower.contains("connection refused")
+        || msg_lower.contains("network")
+        || msg_lower.contains("无法与服务器建立连接")
+        || msg_lower.contains("无法连接")
+        || msg_lower.contains("连接失败")
+}
+
 fn map_remote_err(e: &git2::Error) -> String {
     let msg = e.message().to_string();
     let lower = msg.to_lowercase();
     match e.code() {
         ErrorCode::Auth => format!("[auth]认证失败：{msg}"),
         ErrorCode::Certificate => format!("[auth]HTTPS 证书校验失败：{msg}"),
-        _ if lower.contains("could not resolve host")
-            || lower.contains("failed to connect")
-            || lower.contains("timed out")
-            || lower.contains("connection refused")
-            || lower.contains("network") =>
-        {
-            format!("[network]无法连接远端：{msg}")
-        }
+        _ if is_network_failure(&lower, e.class()) => format!("[network]无法连接远端：{msg}"),
         _ if lower.contains("authentication") || lower.contains("credentials") => {
             format!("[auth]认证失败：{msg}")
         }
@@ -1743,6 +1751,19 @@ mod tests {
     use std::fs;
 
     #[test]
+    fn remote_error_classifies_network_messages() {
+        assert!(is_network_failure(
+            "failed to send request: 无法与服务器建立连接",
+            ErrorClass::None
+        ));
+        assert!(is_network_failure("failed to connect to 127.0.0.1", ErrorClass::Invalid));
+        assert!(is_network_failure("could not resolve host", ErrorClass::Invalid));
+        assert!(is_network_failure("opaque transport failure", ErrorClass::Net));
+        assert!(!is_network_failure("authentication failed", ErrorClass::Invalid));
+        assert!(!is_network_failure("远端操作失败", ErrorClass::Invalid));
+    }
+
+    #[test]
     fn status_label_maps_flag_combinations() {
         assert_eq!(status_label(Status::empty()), None);
         assert_eq!(status_label(Status::IGNORED), Some("已忽略".into()));
@@ -2183,7 +2204,7 @@ mod tests {
         assert!(work.join("c.log").exists());
         let log = git_log(&work, 10).unwrap();
         assert_eq!(log[0].parents.len(), 2);
-        assert_eq!(git_merge_state(&work).unwrap(), false);
+        assert!(!git_merge_state(&work).unwrap());
     }
 
     #[test]

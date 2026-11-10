@@ -145,7 +145,9 @@ fn main() -> ExitCode {
 
 /// Split `argv` into a subcommand plus `-flag [value]` pairs. A flag takes the
 /// following token as its value unless that token is itself a flag (starts with
-/// `-`) or is absent, in which case the flag is boolean.
+/// `-`) or is absent, in which case the flag is boolean. A negative integer is
+/// a value, not a flag: `--max -1` should reach the range check instead of
+/// being reported as an unknown option.
 fn parse(argv: &[String]) -> Option<Args> {
     let sub = argv[0].clone();
     let mut flags = Vec::new();
@@ -157,7 +159,7 @@ fn parse(argv: &[String]) -> Option<Args> {
         }
         let key = tok.trim_start_matches('-').to_string();
         match argv.get(i + 1) {
-            Some(next) if !next.starts_with('-') => {
+            Some(next) if !next.starts_with('-') || is_negative_integer(next) => {
                 flags.push((key, Some(next.clone())));
                 i += 2;
             }
@@ -170,10 +172,18 @@ fn parse(argv: &[String]) -> Option<Args> {
     Some(Args { sub, flags })
 }
 
+fn is_negative_integer(s: &str) -> bool {
+    s.strip_prefix('-')
+        .is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
+}
+
 fn open_doc(args: &Args) -> Result<DocFile, CliError> {
     let path = args
         .get("file")
         .ok_or_else(|| CliError::Usage("missing --file".to_string()))?;
+    if path.is_empty() {
+        return Err(CliError::Usage("--file must not be empty".to_string()));
+    }
     let mut doc = DocFile::open(Path::new(path), SIZE_LIMIT)?;
     if let Some(label) = args.get("encoding") {
         let label = EncodingLabel::from_label(label)
@@ -184,6 +194,15 @@ fn open_doc(args: &Args) -> Result<DocFile, CliError> {
 }
 
 fn cmd_open(args: &Args, out: &mut impl Write) -> Result<(), CliError> {
+    // Validate --head before writing anything, so a bad value leaves no
+    // half-finished summary JSON on stdout.
+    let head: Option<usize> = match args.get("head") {
+        Some(v) => Some(
+            v.parse()
+                .map_err(|_| CliError::Usage("--head must be a number".to_string()))?,
+        ),
+        None => None,
+    };
     let mut doc = open_doc(args)?;
     if args.has("line-count") {
         writeln!(out, "{}", doc.line_count())?;
@@ -197,15 +216,13 @@ fn cmd_open(args: &Args, out: &mut impl Write) -> Result<(), CliError> {
         doc.encoding().as_str(),
         eol_token(doc.eol_style()),
     )?;
-    if let Some(head) = args.get("head") {
-        let n: usize = head
-            .parse()
-            .map_err(|_| CliError::Usage("--head must be a number".to_string()))?;
+    if let Some(n) = head {
         // Reuse the already-opened doc — a second open_doc would rebuild the
         // whole line index just to obtain a mutable handle for chunk_at.
         let chunk = doc.chunk_at(0, n)?;
         for line in chunk.text.split('\n').take(n) {
-            writeln!(out, "{line}")?;
+            // CRLF text keeps the CR; one writeln! per line must not emit it.
+            writeln!(out, "{}", line.strip_suffix('\r').unwrap_or(line))?;
         }
     }
     Ok(())
@@ -225,10 +242,9 @@ fn cmd_search(args: &Args, out: &mut impl Write) -> Result<(), CliError> {
     };
     let case_sensitive = !args.has("ignore-case");
     let max: Option<u64> = match args.get("max") {
-        Some(v) => Some(
-            v.parse()
-                .map_err(|_| CliError::Usage("--max must be a number".to_string()))?,
-        ),
+        Some(v) => Some(v.parse().map_err(|_| {
+            CliError::Usage("--max must be a non-negative integer".to_string())
+        })?),
         None => None,
     };
     let q = SearchQuery {
