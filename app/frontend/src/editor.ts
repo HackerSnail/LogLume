@@ -5,7 +5,14 @@
 //! handle (the shell owns line-ending write-back), seeded from the core's
 //! detected style so a CRLF file is not silently rewritten to LF (spec §4.4).
 
-import { EditorState, Compartment, StateEffect, StateField, type Transaction } from "@codemirror/state";
+import {
+  EditorState,
+  EditorSelection,
+  Compartment,
+  StateEffect,
+  StateField,
+  type Transaction,
+} from "@codemirror/state";
 import {
   Decoration,
   EditorView,
@@ -80,11 +87,45 @@ import {
   type MacroOp,
   type MoveBy,
   type SymbolItem,
+  type CursorSpot,
+  type RelativeEdit,
 } from "./editortools";
 
 /** Editor font-size theme fragment (Plan 27 zoom); rebuilt on every step. */
 function fontTheme(px: number) {
   return EditorView.theme({ "&": { fontSize: `${px}px` } });
+}
+
+/**
+ * Selection ranges as line/column spots (1-based line, 0-based column).
+ * Line/column keeps a recorded macro readable and lets it survive edits that
+ * shift offsets earlier in the document.
+ */
+function spotsOf(state: EditorState): CursorSpot[] {
+  return state.selection.ranges.map((r) => {
+    const from = state.doc.lineAt(r.from);
+    const to = state.doc.lineAt(r.to);
+    return {
+      fromLine: from.number,
+      fromCol: r.from - from.from,
+      toLine: to.number,
+      toCol: r.to - to.from,
+    };
+  });
+}
+
+/** Stable signature of a cursor set — used to skip duplicate recordings. */
+function cursorKey(spots: readonly CursorSpot[]): string {
+  return spots.map((s) => `${s.fromLine}:${s.fromCol}-${s.toLine}:${s.toCol}`).join("|");
+}
+
+/** Spots back to offsets in the current document (clamped to the line ends). */
+function spotToRange(state: EditorState, spot: CursorSpot): { from: number; to: number } {
+  const fromLine = state.doc.line(Math.min(Math.max(spot.fromLine, 1), state.doc.lines));
+  const toLine = state.doc.line(Math.min(Math.max(spot.toLine, 1), state.doc.lines));
+  const from = fromLine.from + Math.min(spot.fromCol, fromLine.length);
+  const to = toLine.from + Math.min(spot.toCol, toLine.length);
+  return { from, to };
 }
 
 // ---- bookmarks (Plan 28) ----------------------------------------------------
@@ -245,6 +286,8 @@ export interface OpenEditableOpts {
   onInvalid?: (count: number) => void;
   /** Bookmarks changed (toggle/clear) → current 1-based lines (Plan 38). */
   onBookmarksChanged?: (lines: number[]) => void;
+  /** Active cursor count changed (1 = single cursor, N = multi-cursor). */
+  onCursors?: (count: number) => void;
 }
 
 /**
@@ -294,6 +337,9 @@ export async function openEditable(opts: OpenEditableOpts): Promise<EditorHandle
   // True while a keymap-hooked word command is dispatching, so the follow-up
   // transaction is not captured twice (Plan 32).
   let suppressCapture = false;
+  // Signature of the cursor set last written into the macro — keeps repeated
+  // select transactions from piling up duplicate `cursors` ops.
+  let lastCursorKey = "";
   const headClass = (tr: Transaction, h0: number, h1: number): ReturnType<typeof classifyMove> => {
     const bl = tr.startState.doc.lineAt(h0);
     const al = tr.state.doc.lineAt(h1);
@@ -325,13 +371,40 @@ export async function openEditable(opts: OpenEditableOpts): Promise<EditorHandle
       {
         capture: (tr) => {
           if (suppressCapture || macro === null || macro.length >= MACRO_MAX_OPS) return;
-          // Multi-cursor edits are not modelled (spec §3): skip instead of
-          // recording main-cursor garbage.
-          if (tr.startState.selection.ranges.length > 1 || tr.state.selection.ranges.length > 1) {
-            return;
-          }
           // Backspace must replay as a backward delete, not a forward one.
           const dir = tr.isUserEvent("delete.backward") ? "backward" : "forward";
+          const multi = tr.startState.selection.ranges.length > 1 || tr.state.selection.ranges.length > 1;
+          if (multi) {
+            // Multi-cursor edit: fold the per-cursor changes. Identical
+            // changes (typing/paste/backspace at several cursors) collapse to
+            // the single-cursor op kinds; differing ones need `multi-edit`.
+            const edits: RelativeEdit[] = [];
+            const pre = tr.startState.selection.ranges;
+            tr.changes.iterChangedRanges((fromA, toA, fromB, toB) => {
+              const idx = edits.length;
+              const range = pre[idx] ?? pre[pre.length - 1];
+              const head = range ? range.head : fromA;
+              const lo = range ? Math.min(range.anchor, range.head) : fromA;
+              const hi = range ? Math.max(range.anchor, range.head) : toA;
+              edits.push({
+                from: Math.min(fromA, lo) - head,
+                to: Math.max(toA, hi) - head,
+                text: tr.state.sliceDoc(fromB, toB),
+              });
+            });
+            if (edits.length === 0) return;
+            const same = edits.every(
+              (e) => e.from === edits[0].from && e.to === edits[0].to && e.text === edits[0].text,
+            );
+            if (same) {
+              const e = edits[0];
+              const removed = e.to - e.from;
+              macro!.push(...extractMacroOps([{ removed, inserted: e.text }], dir));
+            } else {
+              macro!.push({ kind: "multi-edit", edits });
+            }
+            return;
+          }
           tr.changes.iterChangedRanges((fromA, toA, fromB, toB) => {
             if (macro!.length >= MACRO_MAX_OPS) return;
             macro!.push(
@@ -342,6 +415,21 @@ export async function openEditable(opts: OpenEditableOpts): Promise<EditorHandle
             );
           });
         },
+        captureCursors: (tr) => {
+          if (suppressCapture || macro === null || macro.length >= MACRO_MAX_OPS) return;
+          const before = tr.startState.selection.ranges.length;
+          const after = tr.state.selection.ranges.length;
+          // Single-cursor selections are not recorded (a plain click is not a
+          // macro step); only multi-cursor sets and the switch back to one
+          // cursor matter.
+          if (before === 1 && after === 1) return;
+          const spots = spotsOf(tr.state);
+          const key = cursorKey(spots);
+          if (key === lastCursorKey) return;
+          lastCursorKey = key;
+          macro!.push({ kind: "cursors", spots });
+        },
+        cursorCount: (n) => opts.onCursors?.(n),
         captureMove: (tr) => {
           if (suppressCapture || macro === null || macro.length >= MACRO_MAX_OPS) return;
           const s0 = tr.startState.selection.main;
@@ -523,6 +611,14 @@ export async function openEditable(opts: OpenEditableOpts): Promise<EditorHandle
     startRecording: () => {
       if (macro !== null) return false;
       macro = [];
+      lastCursorKey = "";
+      // Starting with several cursors already active: the replay has to know
+      // the cursor set before the first recorded step.
+      const spots = spotsOf(view.state);
+      if (spots.length > 1) {
+        lastCursorKey = cursorKey(spots);
+        macro.push({ kind: "cursors", spots });
+      }
       return true;
     },
     stopRecording: () => {
@@ -586,32 +682,97 @@ function replayOps(view: EditorView, ops: readonly MacroOp[], times: number): vo
   if (ops.length === 0) return;
   for (let t = 0; t < times; t++) {
     for (const op of ops) {
-      const cur = view.state.selection.main.head;
       if (op.kind === "insert") {
-        view.dispatch({
-          changes: { from: cur, insert: op.text },
-          selection: { anchor: cur + op.text.length },
-        });
+        applyInsert(view, op.text);
       } else if (op.kind === "delete") {
-        const sel = view.state.selection.main;
-        // "Select a range, then type" records as delete+insert; replaying the
-        // delete over the live selection is what replaces it (spec §1).
-        if (!sel.empty) {
-          view.dispatch({ changes: { from: sel.from, to: sel.to } });
-          continue;
-        }
-        const from = op.dir === "backward" ? Math.max(0, cur - op.count) : cur;
-        const to = op.dir === "backward" ? cur : Math.min(view.state.doc.length, cur + op.count);
-        if (from !== to) view.dispatch({ changes: { from, to } });
+        applyDelete(view, op.count, op.dir);
       } else if (op.kind === "del-word") {
         (op.dir === "backward" ? deleteGroupBackward : deleteGroupForward)(view);
       } else if (op.kind === "move") {
         applyMove(view, op.by, op.select === true);
+      } else if (op.kind === "cursors") {
+        applyCursors(view, op.spots);
+      } else if (op.kind === "multi-edit") {
+        applyMultiEdit(view, op.edits);
       } else {
         applyLineOpToView(view, op.op);
       }
     }
   }
+}
+
+/** Insert text at every cursor; each cursor lands after the inserted text. */
+function applyInsert(view: EditorView, text: string): void {
+  const { state } = view;
+  const ranges = state.selection.ranges;
+  const changes = ranges.map((r) => ({ from: r.head, to: r.head, insert: text }));
+  if (changes.length === 0) return;
+  const cs = state.changes(changes);
+  view.dispatch({
+    changes: cs,
+    selection: EditorSelection.create(
+      ranges.map((r) => EditorSelection.cursor(cs.mapPos(r.head, 1))),
+    ),
+  });
+}
+
+/**
+ * Delete `count` characters at every cursor. A non-empty range is replaced by
+ * its own content first — "select a range, then type" records as delete+insert
+ * and the replay deletes the live selection (spec §1).
+ */
+function applyDelete(view: EditorView, count: number, dir: "forward" | "backward"): void {
+  const { state } = view;
+  const ranges = state.selection.ranges;
+  const changes: Array<{ from: number; to: number }> = [];
+  for (const r of ranges) {
+    if (!r.empty) {
+      changes.push({ from: r.from, to: r.to });
+      continue;
+    }
+    const from = dir === "backward" ? Math.max(0, r.head - count) : r.head;
+    const to = dir === "backward" ? r.head : Math.min(state.doc.length, r.head + count);
+    if (from !== to) changes.push({ from, to });
+  }
+  if (changes.length === 0) return;
+  const cs = state.changes(changes);
+  view.dispatch({
+    changes: cs,
+    selection: EditorSelection.create(
+      ranges.map((r) => EditorSelection.cursor(cs.mapPos(r.head, 1))),
+    ),
+  });
+}
+
+/** Set the cursor set (multi-cursor) from recorded line/column spots. */
+function applyCursors(view: EditorView, spots: readonly CursorSpot[]): void {
+  if (spots.length === 0) return;
+  const { state } = view;
+  const ranges = spots.map((spot) => {
+    const { from, to } = spotToRange(state, spot);
+    return EditorSelection.range(from, to);
+  });
+  view.dispatch({ selection: EditorSelection.create(ranges), scrollIntoView: true });
+}
+
+/** Per-cursor edits that differ from each other (multi-cursor recording). */
+function applyMultiEdit(view: EditorView, edits: readonly RelativeEdit[]): void {
+  const { state } = view;
+  const ranges = state.selection.ranges;
+  if (ranges.length === 0 || edits.length === 0) return;
+  const changes = ranges.map((r, i) => {
+    const e = edits[Math.min(i, edits.length - 1)];
+    const from = Math.max(0, Math.min(state.doc.length, r.head + e.from));
+    const to = Math.max(from, Math.min(state.doc.length, r.head + e.to));
+    return { from, to, insert: e.text };
+  });
+  const cs = state.changes(changes);
+  view.dispatch({
+    changes: cs,
+    selection: EditorSelection.create(
+      ranges.map((r) => EditorSelection.cursor(cs.mapPos(r.head, 1))),
+    ),
+  });
 }
 
 /** One named line operation over the selection's line range (Plan 27 semantics). */
@@ -632,13 +793,13 @@ function applyLineOpToView(view: EditorView, op: LineOp): void {
 /** Replay one recorded cursor move (Plan 30/32); plain steps ride CM commands. */
 function applyMove(view: EditorView, by: MoveBy, select: boolean): void {
   if (by === "line-start" || by === "line-end") {
-    const sel = view.state.selection.main;
-    const line = view.state.doc.lineAt(sel.head);
-    const head = by === "line-start" ? line.from : line.to;
-    view.dispatch({
-      selection: select ? { anchor: sel.anchor, head } : { anchor: head },
-      scrollIntoView: true,
+    const { state } = view;
+    const ranges = state.selection.ranges.map((r) => {
+      const line = state.doc.lineAt(r.head);
+      const head = by === "line-start" ? line.from : line.to;
+      return select ? EditorSelection.range(r.anchor, head) : EditorSelection.cursor(head);
     });
+    view.dispatch({ selection: EditorSelection.create(ranges), scrollIntoView: true });
     return;
   }
   const map: Partial<Record<Exclude<MoveBy, "line-start" | "line-end">, (v: EditorView) => boolean>> =
@@ -668,6 +829,8 @@ function buildState(
     capture(tr: Transaction): void;
     captureMove(tr: Transaction): void;
     captureSelect(tr: Transaction): void;
+    captureCursors(tr: Transaction): void;
+    cursorCount(count: number): void;
     wordMove(by: "word-left" | "word-right", cmd: (v: EditorView) => boolean): boolean;
     wordDelete(dir: "forward" | "backward", cmd: (v: EditorView) => boolean): boolean;
     queueOverview(): void;
@@ -741,6 +904,7 @@ function buildState(
               tools.captureMove(tr);
             } else if (tr.isUserEvent("select")) {
               tools.captureSelect(tr);
+              tools.captureCursors(tr);
             }
             continue;
           }
@@ -755,6 +919,9 @@ function buildState(
           }
         }
         if (u.docChanged) onDocChanged();
+        if (u.selectionSet || u.docChanged) {
+          tools.cursorCount(u.state.selection.ranges.length);
+        }
         if (u.docChanged || u.viewportChanged || u.geometryChanged) {
           if (tools.minimapOn()) tools.queueOverview();
         }

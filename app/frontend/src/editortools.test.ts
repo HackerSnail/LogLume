@@ -101,10 +101,25 @@ describe("macro persistence (Plan 30)", () => {
           { kind: "delete", count: 2, dir: "backward" },
           { kind: "del-word", dir: "forward" },
           { kind: "line", op: "dedupe" },
+          { kind: "cursors", spots: [{ fromLine: 1, fromCol: 0, toLine: 1, toCol: 0 }] },
+          { kind: "multi-edit", edits: [{ from: -1, to: 0, text: "X" }] },
         ],
       },
     ];
     expect(parseMacros(serializeMacros(macros))).toEqual(macros);
+  });
+
+  it("rejects malformed multi-cursor ops", () => {
+    const bad = JSON.stringify({
+      macros: [
+        { name: "光标集缺字段", ops: [{ kind: "cursors", spots: [{ fromLine: 1 }] }] },
+        { name: "光标集行号非法", ops: [{ kind: "cursors", spots: [{ fromLine: 0, fromCol: 0, toLine: 0, toCol: 0 }] }] },
+        { name: "多光标编辑方向反了", ops: [{ kind: "multi-edit", edits: [{ from: 1, to: 0, text: "" }] }] },
+        { name: "空光标集", ops: [{ kind: "cursors", spots: [] }] },
+        { name: "好", ops: [{ kind: "insert", text: "a" }] },
+      ],
+    });
+    expect(parseMacros(bad)).toEqual([{ name: "好", ops: [{ kind: "insert", text: "a" }] }]);
   });
 
   it("returns [] for null/corrupt input", () => {

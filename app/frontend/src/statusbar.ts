@@ -171,8 +171,10 @@ export class Statusbar {
     }
   }
 
-  setPos(line: number, col: number, lines: number): void {
-    this.posEl.textContent = `行 ${line}/${lines} · 列 ${col}`;
+  setPos(line: number, col: number, lines: number, cursors = 1): void {
+    const base = `行 ${line}/${lines} · 列 ${col}`;
+    // Multi-cursor: show how many cursors are active next to the main one.
+    this.posEl.textContent = cursors > 1 ? `${base} · ${cursors} 个光标` : base;
   }
 
   /** Read-only view: no cursor, so show the line tally instead of a position. */

@@ -115,3 +115,19 @@ describe("Statusbar tail follow (Roadmap)", () => {
     expect(seen).toEqual([true, false]);
   });
 });
+
+describe("Statusbar cursor count", () => {
+  it("shows line/column only while a single cursor is active", () => {
+    const { root, bar } = mountBar();
+    bar.setPos(3, 5, 100);
+    expect(root.querySelector(".doc-pos")?.textContent).toBe("行 3/100 · 列 5");
+    bar.setPos(3, 5, 100, 1);
+    expect(root.querySelector(".doc-pos")?.textContent).toBe("行 3/100 · 列 5");
+  });
+
+  it("adds the cursor count when several cursors are active", () => {
+    const { root, bar } = mountBar();
+    bar.setPos(3, 5, 100, 4);
+    expect(root.querySelector(".doc-pos")?.textContent).toBe("行 3/100 · 列 5 · 4 个光标");
+  });
+});

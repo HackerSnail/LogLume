@@ -2,6 +2,12 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-10 — 多光标进宏录制，状态栏显示光标数
+
+**Files:** Modify `app/frontend/src/editortools.ts`（宏操作新增 `cursors`（光标集，行/列坐标）与 `multi-edit`（各光标互不相同的相对编辑）两类，`isMacroOp` 校验它们的形状）；Modify `app/frontend/src/editor.ts`（录制侧：`captureCursors` 记多光标光标集（纯单光标点击仍不记），多光标编辑事务按光标折叠成单光标操作或 `multi-edit`；重放侧：`insert`/`delete`/`del-word`/`move` 改为作用到所有光标，新增 `applyCursors`/`applyMultiEdit`，`applyMove` 的行首/行尾按每个光标计算；`startRecording` 起始即为多光标时先记一条光标集；新增 `onCursors` 回调上报光标数）；Modify `app/frontend/src/statusbar.ts`（`setPos` 增加 `cursors` 参数，多光标时显示「N 个光标」）；Modify `app/frontend/src/main.ts`（接线 `onCursors` → `updatePos`，状态栏带出光标数）；Modify `app/frontend/src/editor.test.ts`（新增 4 例：多光标打字录制→重放、多光标 Backspace 重放、各光标不同的编辑落成 `multi-edit`、回到单光标也记一条）；Modify `app/frontend/src/editortools.test.ts`（新操作类型往返 + 坏数据丢弃）；Modify `app/frontend/src/statusbar.test.ts`（光标计数显示）；Modify `docs/features.md`（Plan 47 条目，Plan 32 里"宏录制不记多光标"改为不记单光标点击）；Add `docs/specs/2026-11-10-multi-cursor-macro-design.md`；Modify `CHANGELOG.md`（本条目）。
+**Why:** Plan 32 把多选区事务整段跳过，多光标编辑完全不进宏；Plan 30 的重放只作用在 `selection.main`，多光标下即使录进去也只是主光标的垃圾。多光标已经是编辑器的一等能力（Alt 列选择 + Ctrl 点击），宏理应跟上：录制光标集，重放时对所有光标生效。
+**验证:** `npx tsc --noEmit` exit 0；`npx vitest run` 314 passed / 39 suites（editor.test.ts 20 例、statusbar.test.ts 8 例）；`cargo test --workspace` 393 passed / 0 failed；`cargo clippy --workspace --all-targets -- -D warnings` 无警告。真实窗口 CDP 复测：Ctrl+左键点击后状态栏显示「行 3/9 · 列 5 · 2 个光标」；命令面板「宏：开始录制」→ 两光标处输入 X 得 `aaaaX\nbbbb\nccccX`；「宏：停止录制」→ 重置文档→「宏：播放」→ 文档再次变为 `aaaaX\nbbbb\nccccX`。
+
 ## 2026-11-10 — 给列选择/多光标补回归测试与文档
 
 **Files:** Modify `app/frontend/src/editor.test.ts`（新增 3 例：`EditorState.allowMultipleSelections` 已开、多 range 选区经 state 更新后仍保留 2 个 range、矩形选区样式已注册进 `EditorView.mouseSelectionStyle`）；Modify `docs/features.md`（写清 Alt+左键拖拽出矩形选区、Ctrl+左键点击追加光标，两者都依赖 `allowMultipleSelections`；宏那句改成"宏录制不记多光标，编辑器本身的多光标编辑不受影响"）；Modify `CHANGELOG.md`（本条目）。

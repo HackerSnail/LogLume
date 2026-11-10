@@ -1,12 +1,16 @@
 // @vitest-environment jsdom
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { language } from "@codemirror/language";
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import type { DocInfo } from "./ipc";
 
+// The mocked document text — most tests use "b\na", the multi-cursor ones
+// need a longer buffer.
+const mockState = vi.hoisted(() => ({ text: "b\na" }));
+
 vi.mock("./ipc", () => ({
-  loadAllText: async () => ({ text: "b\na", invalidCount: 0 }),
+  loadAllText: async () => ({ text: mockState.text, invalidCount: 0 }),
 }));
 
 const { openEditable, bookmarkPositions } = await import("./editor");
@@ -314,6 +318,119 @@ describe("Editor selection modes", () => {
     // rectangularSelection() registers a mouse selection style that claims
     // Alt+left-button drags.
     expect(handle.view.state.facet(EditorView.mouseSelectionStyle).length).toBeGreaterThan(0);
+    handle.destroy();
+  });
+});
+
+describe("Macro recording with several cursors", () => {
+  const DOC = "aaaa\nbbbb\ncccc";
+
+  beforeEach(() => {
+    mockState.text = DOC;
+  });
+
+  afterEach(() => {
+    mockState.text = "b\na";
+  });
+
+  it("records the cursor set and replays the edit at every cursor", async () => {
+    const handle = await mount("txt");
+    handle.view.dispatch({ selection: { anchor: 0 } });
+    expect(handle.startRecording()).toBe(true);
+
+    // Ctrl+click: a selection-only transaction that adds a second cursor.
+    handle.view.dispatch({
+      selection: EditorSelection.create([EditorSelection.cursor(1), EditorSelection.cursor(6)]),
+      userEvent: "select.pointer",
+    });
+    // Typing with both cursors: one transaction, two changed ranges.
+    handle.view.dispatch({
+      changes: [
+        { from: 1, to: 1, insert: "X" },
+        { from: 6, to: 6, insert: "X" },
+      ],
+      userEvent: "input.type",
+    });
+    expect(handle.stopRecording()).toBe(2);
+    const ops = handle.macroOps();
+    expect(ops[0].kind).toBe("cursors");
+    expect(ops[1]).toEqual({ kind: "insert", text: "X" });
+
+    handle.replaceText(DOC);
+    handle.view.dispatch({ selection: { anchor: 0 } });
+    handle.playMacro(1, ops);
+    expect(handle.getText()).toBe("aXaaa\nbXbbb\ncccc");
+    handle.destroy();
+  });
+
+  it("replays a multi-cursor backspace at every cursor", async () => {
+    const handle = await mount("txt");
+    handle.view.dispatch({ selection: { anchor: 0 } });
+    handle.startRecording();
+    handle.view.dispatch({
+      selection: EditorSelection.create([EditorSelection.cursor(2), EditorSelection.cursor(7)]),
+      userEvent: "select.pointer",
+    });
+    handle.view.dispatch({
+      changes: [
+        { from: 1, to: 2 },
+        { from: 6, to: 7 },
+      ],
+      userEvent: "delete.backward",
+    });
+    handle.stopRecording();
+    const ops = handle.macroOps();
+    expect(ops[1]).toEqual({ kind: "delete", count: 1, dir: "backward" });
+
+    handle.replaceText(DOC);
+    handle.view.dispatch({ selection: { anchor: 0 } });
+    handle.playMacro(1, ops);
+    expect(handle.getText()).toBe("aaa\nbbb\ncccc");
+    handle.destroy();
+  });
+
+  it("keeps per-cursor edits that differ from each other", async () => {
+    const handle = await mount("txt");
+    handle.view.dispatch({ selection: { anchor: 0 } });
+    handle.startRecording();
+    // One cursor holds a selection, the other is empty → the two edits differ.
+    handle.view.dispatch({
+      selection: EditorSelection.create([EditorSelection.range(0, 2), EditorSelection.cursor(6)]),
+      userEvent: "select.pointer",
+    });
+    handle.view.dispatch({
+      changes: [
+        { from: 0, to: 2, insert: "X" },
+        { from: 6, to: 6, insert: "X" },
+      ],
+      userEvent: "input.type",
+    });
+    handle.stopRecording();
+    const ops = handle.macroOps();
+    expect(ops[1].kind).toBe("multi-edit");
+
+    handle.replaceText(DOC);
+    handle.view.dispatch({ selection: { anchor: 0 } });
+    handle.playMacro(1, ops);
+    expect(handle.getText()).toBe("Xaa\nbXbbb\ncccc");
+    handle.destroy();
+  });
+
+  it("records the switch back to a single cursor", async () => {
+    const handle = await mount("txt");
+    handle.view.dispatch({ selection: { anchor: 0 } });
+    handle.startRecording();
+    handle.view.dispatch({
+      selection: EditorSelection.create([EditorSelection.cursor(1), EditorSelection.cursor(6)]),
+      userEvent: "select.pointer",
+    });
+    // A plain click collapses the cursor set again.
+    handle.view.dispatch({ selection: { anchor: 2 }, userEvent: "select.pointer" });
+    handle.stopRecording();
+    const ops = handle.macroOps();
+    expect(ops).toHaveLength(2);
+    expect(ops[1]).toMatchObject({ kind: "cursors" });
+    expect((ops[1] as { spots: unknown[] }).spots).toHaveLength(1);
     handle.destroy();
   });
 });

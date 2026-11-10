@@ -22,7 +22,33 @@ export type MacroOp =
   | { kind: "delete"; count: number; dir: "forward" | "backward" }
   | { kind: "del-word"; dir: "forward" | "backward" }
   | { kind: "move"; by: MoveBy; /** true when recorded as a selection extension */ select?: boolean }
-  | { kind: "line"; op: LineOp };
+  | { kind: "line"; op: LineOp }
+  /** Set the cursor set (multi-cursor): one spot per selection range. */
+  | { kind: "cursors"; spots: CursorSpot[] }
+  /** Per-cursor edits that differ from each other (multi-cursor). */
+  | { kind: "multi-edit"; edits: RelativeEdit[] };
+
+/**
+ * One selection range in line/column terms: 1-based line, 0-based column.
+ * Line/column instead of absolute offsets so a recorded macro survives edits
+ * that shift positions earlier in the document.
+ */
+export interface CursorSpot {
+  fromLine: number;
+  fromCol: number;
+  toLine: number;
+  toCol: number;
+}
+
+/** One edit relative to a cursor head: `from`/`to` are offsets from it. */
+export interface RelativeEdit {
+  /** Start offset from the cursor head (≤ 0). */
+  from: number;
+  /** End offset from the cursor head (≥ 0). */
+  to: number;
+  /** Text inserted in place of [from, to). */
+  text: string;
+}
 
 /** Hard cap so a runaway recording cannot exhaust memory. */
 export const MACRO_MAX_OPS = 10_000;
@@ -138,6 +164,39 @@ function isMacroOp(v: unknown): v is MacroOp {
     return MOVE_BYS.includes(o.by as MoveBy) && (o.select === undefined || typeof o.select === "boolean");
   }
   if (o.kind === "line") return LINE_OPS.includes(o.op as LineOp);
+  if (o.kind === "cursors") {
+    return (
+      Array.isArray(o.spots) &&
+      o.spots.length > 0 &&
+      o.spots.every(
+        (s) =>
+          s &&
+          typeof s.fromLine === "number" &&
+          typeof s.fromCol === "number" &&
+          typeof s.toLine === "number" &&
+          typeof s.toCol === "number" &&
+          s.fromLine >= 1 &&
+          s.toLine >= 1 &&
+          s.fromCol >= 0 &&
+          s.toCol >= 0,
+      )
+    );
+  }
+  if (o.kind === "multi-edit") {
+    return (
+      Array.isArray(o.edits) &&
+      o.edits.length > 0 &&
+      o.edits.every(
+        (e) =>
+          e &&
+          typeof e.from === "number" &&
+          typeof e.to === "number" &&
+          typeof e.text === "string" &&
+          e.from <= 0 &&
+          e.to >= 0,
+      )
+    );
+  }
   return false;
 }
 

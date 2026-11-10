@@ -3819,6 +3819,9 @@ async function mountDoc(info: DocInfo, path: string): Promise<void> {
     size: info.size,
     mtime: info.mtimeMillis,
   });
+  // The cursor count arrives before `handle` exists on the first dispatch, so
+  // the callback reads it through this holder instead of the const below.
+  let editorRef: EditorHandle | null = null;
   const handle = await openEditable({
     parent: tabsEl,
     info,
@@ -3828,6 +3831,10 @@ async function mountDoc(info: DocInfo, path: string): Promise<void> {
     onDirty: () => tabs.refreshDirty(info.docId),
     // onDirty fires once per dirty cycle; every edit must re-arm the 2s timer.
     onEdit: () => scheduleRecovery(info.docId),
+    // Multi-cursor count → status bar ("N 个光标").
+    onCursors: () => {
+      if (editorRef) updatePos(editorRef);
+    },
     onInvalid: (n) => {
       // Persistent ⚠ beside the encoding (spec §5.4), not a transient toast —
       // a wrong-encoding file must stay discoverable while it is open.
@@ -3843,6 +3850,7 @@ async function mountDoc(info: DocInfo, path: string): Promise<void> {
     },
   });
   handle.loadBookmarkLines(bookmarkStore[path] ?? []);
+  editorRef = handle;
   editors.set(info.docId, handle);
   tabs.add({ docId: info.docId, path }, handle);
   trackCursor(handle);
@@ -3901,7 +3909,8 @@ function updatePos(handle: EditorHandle): void {
   const st = handle.view.state.selection.main.head;
   const line = handle.view.state.doc.lineAt(st).number;
   const col = st - handle.view.state.doc.line(line).from + 1;
-  status.setPos(line, col, docStates.get(handle.docId)?.totalLines ?? line);
+  const cursors = handle.view.state.selection.ranges.length;
+  status.setPos(line, col, docStates.get(handle.docId)?.totalLines ?? line, cursors);
 }
 
 async function saveActive(saveAs = false): Promise<void> {
