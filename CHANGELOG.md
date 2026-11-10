@@ -2,6 +2,12 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-10 — 补充编码菜单、原生菜单契约与测试生成器用例
+
+**Files:** Add `app/frontend/src/encoding-menu.test.ts`（7 例：`extOf` 的 POSIX/Windows 路径、大小写、多点扩展名、点文件/无扩展名/目录尾斜杠，`ENCODINGS` 13 项顺序、`display === label`、GB2312 不单列而 GB18030 兜底、`EOL_OPTIONS` 三项）；Add `app/frontend/src/menu-contract.test.ts`（5 例：通过 Vite `?raw` 读取 `menu.rs` 与 `main.ts`，断言 7 个中文菜单分类顺序、菜单 id 唯一、每个 Rust 菜单项都落到 `ACTION_DEFS` 或 `runMenuAction` 分支、没有失效分支、键位动作 id 与菜单一致）；Modify `crates/lumelog-core/src/tests_common.rs`（新增 `#[cfg(test)] mod tests` 4 例：空输入、行数/行格式、固定种子确定性与前缀稳定、`gen_log(1)` 与 `gen_log_lines` 字节一致且为合法 UTF-8）；Modify `CHANGELOG.md`（本条目）。
+**Why:** `encoding-menu.ts` 是前端唯一没有专属测试的纯逻辑模块，标签断言此前寄养在 `ipc.test.ts`；macOS 原生菜单 id 与前端分发是跨语言契约，新增菜单项容易漏接 handler 或留下死分支；`tests_common` 被单测/集成测试/基准共用却自身没有自测。契约测试特意不用 `node:fs`，避免引入 `@types/node` 依赖。
+**验证:** `npx tsc --noEmit` 通过；`npx vitest run` 39 文件 / 304 tests 全绿（新增 12 例）；`cargo test --workspace` 388 passed / 0 failed（新增 4 例）；`npm run build`（tsc + vite build）通过。
+
 ## 2026-11-10 — README 改成中英双语，去掉双推说明
 
 **Files:** Modify `README.md`（按 https://gitee.com/hackerSnail/note-lume 的 README 结构改为双语：顶部加英文定位段与「中文 / English」导航，仓库信息行改成中英对照；正文拆成 `## 中文` 与 `## English` 两大节，内部各 9 个 `###` 章节；中文内容不变，只把原 `##` 章节降为 `###`；新增对应的英文 Overview / Highlights / Quick Start / Keyboard Shortcuts / Tech Stack / Project Layout / Configuration / Contributing / License，数字、命令、文件名、许可证和中文名与中文版一致；中英两处贡献指南各删掉「GitHub 与 Gitee 两个仓库都要推送」和「Push to both GitHub and Gitee so the mirrors stay in sync.」）；Modify `CHANGELOG.md`（本条目）。
