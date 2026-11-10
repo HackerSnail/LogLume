@@ -2,6 +2,12 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-10 — 真实执行测试用例表入库
+
+**Files:** Add `docs/reviews/2026-11-10-real-test-cases.json`（`TC-001`～`TC-033` 共 33 条用例，与本轮实际执行产出的 `cases.json` 逐字节一致；`id/module/title/precondition/steps/data/expected/actual/priority/type/method` 11 个字段齐全，33 条 `actual` 全部为实测输出、0 条留空；模块分布 core CLI 11、CAN CLI 11、macOS 原生菜单 3、前端 UI 2、桌面运行环境 2，性能/兼容性/非功能/自动化测试套件各 1；优先级 P0 3 / P1 19 / P2 10 / P3 1）；Modify `CHANGELOG.md`（本条目）。
+**Why:** 用户要求「实际测试，不止测试代码」且「测试出来真的结果要填」。此前这 33 条带真实 `actual` 的用例表、执行报告与门禁报告只存在于会话 artifact 目录和被 git 忽略的 `target/` 下，clone 仓库看不到实测证据，也没法随代码一起评审。把用例表纳入版本管理，并在日志里写清来源与验证口径。`actual` 只记录真实命令/GUI 输出，未执行的项不代填；几处疑似缺陷经复核为设计或工具行为（`--limit` 与 `--out jsonl|csv` 组合打印全部帧、空白工作区不弹右键菜单、`pbpaste` 读的是 legacy `string` flavor、并发 `cargo run` 争用共享 `target/debug`），用例表里已写明结论。仓库内此前只有 `docs/reviews/2026-11-09-test-cases.md`（Windows 平台的 Markdown 报告），本次是 macOS 真实 GUI/CLI 执行的结构化用例表，按同目录日期前缀命名。
+**验证:** `shasum -a 256` 原件与入库文件均为 `6c5ed3d1…c8`；`json.load` 解析出 33 条，`actual` 33 填 0 空；`node case-gate.js --file docs/reviews/2026-11-10-real-test-cases.json --md` 退出码 0，结论通过、覆盖率 100/100（阈值 70）、风险低、23 项检查全通过、五维均 100、负例+边界占比 48%、平均步骤 1.8。纯用例数据与文档改动，未改应用代码，未重跑应用测试套件。
+
 ## 2026-11-10 — 补充编码菜单、原生菜单契约与测试生成器用例
 
 **Files:** Add `app/frontend/src/encoding-menu.test.ts`（7 例：`extOf` 的 POSIX/Windows 路径、大小写、多点扩展名、点文件/无扩展名/目录尾斜杠，`ENCODINGS` 13 项顺序、`display === label`、GB2312 不单列而 GB18030 兜底、`EOL_OPTIONS` 三项）；Add `app/frontend/src/menu-contract.test.ts`（5 例：通过 Vite `?raw` 读取 `menu.rs` 与 `main.ts`，断言 7 个中文菜单分类顺序、菜单 id 唯一、每个 Rust 菜单项都落到 `ACTION_DEFS` 或 `runMenuAction` 分支、没有失效分支、键位动作 id 与菜单一致）；Modify `crates/lumelog-core/src/tests_common.rs`（新增 `#[cfg(test)] mod tests` 4 例：空输入、行数/行格式、固定种子确定性与前缀稳定、`gen_log(1)` 与 `gen_log_lines` 字节一致且为合法 UTF-8）；Modify `CHANGELOG.md`（本条目）。
