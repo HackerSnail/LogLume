@@ -47,8 +47,12 @@ describe("Statusbar syntax dropdown (spec §8)", () => {
 
     expect(labels.slice(0, 6)).toEqual(["Auto", "Plain Text", "Log", "INI", "JSON", "C/C++"]);
     expect(labels).toContain("TypeScript");
-    expect(sel.options[6].value).toBe("javascript");
-    expect(sel.options[7].value).toBe("typescript");
+    const opt = (value: string): HTMLOptionElement | undefined =>
+      Array.from(sel.options).find((o) => o.value === value);
+    expect(opt("javascript")?.textContent).toBe("JavaScript");
+    expect(opt("typescript")?.textContent).toBe("TypeScript");
+    expect(opt("jsx")?.textContent).toBe("JSX");
+    expect(opt("tsx")?.textContent).toBe("TSX");
 
     sel.value = "javascript";
     sel.dispatchEvent(new Event("change"));

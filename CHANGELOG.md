@@ -2,6 +2,94 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-09 — 自实现 Astro / HCL(Terraform) / Zig 高亮
+
+**Files:** Modify `app/frontend/src/language.ts`（新增 `astro`/`hcl`/`zig` 三个 `simpleMode` 模式：Astro 覆盖 `---` frontmatter、HTML 标签/属性/注释、`{}` 表达式；HCL 覆盖 `resource/data/...`、块标签、`key = value`、字符串与 `${}` 插值、heredoc、注释；Zig 覆盖关键字/基础类型/`@builtin`/error set/多行 `\\` 字符串/数字/注释；`.astro/.hcl/.tf/.tfvars/.zig/.zon` 自动识别）；Modify `app/frontend/src/language.test.ts`（映射与三语言示例）；Modify `app/frontend/src/docKind.ts`（同步非日志）。
+**Why:** npm 上没有可用的 CodeMirror 6 Astro/HCL/Zig 包；用户要求自己实现，因此用 `simpleMode` 写真实 tokenizer，不拿近似语言冒充。
+**验证:** `npx tsc --noEmit` 通过；全量 `npx vitest run` 37 文件 / 289 tests 全绿；`npm ci --dry-run` 通过。
+
+## 2026-11-09 — 补 Godot 场景/资源高亮（.tscn / .tres / .godot）
+
+**Files:** Modify `app/frontend/src/language.ts`（新增 `godot` 模式：`[gd_scene]`/`[node]`/`[resource]` 等 section、键值、`ExtResource/SubResource`、`Vector2/Color/Transform2D` 等值类型、字符串/数字/布尔/注释；`.tscn/.tres/.godot` 自动识别）；Modify `app/frontend/src/language.test.ts`（映射与 `.tscn` 示例）；Modify `app/frontend/src/docKind.ts`（tscn/tres/godot 同步为非日志）。
+**Why:** 用户要求补 Godot 场景/资源文件；它们是 Godot 自定义文本格式，GDScript 模式不能覆盖。
+**验证:** `npx tsc --noEmit` 通过；全量 `npx vitest run` 37 文件 / 289 tests 全绿；`npm ci --dry-run` 通过。
+
+## 2026-11-09 — 补 GDScript（Godot）高亮
+
+**Files:** Modify `app/frontend/src/language.ts`（新增 `gdscript` 模式：基于 `simpleMode` 实现关键字、内置类型/函数、注解、`$NodePath`、`%Unique`、单/双/三引号字符串、数字、注释；`.gd/.gdscript` 自动识别）；Modify `app/frontend/src/language.test.ts`（映射与 GDScript 示例）；Modify `app/frontend/src/docKind.ts`（gd/gdscript 同步为非日志）。
+**Why:** 用户澄清「gdot 做游戏的」指 Godot 的 GDScript，不是 Graphviz DOT；npm 上没有现成的 CodeMirror 6 GDScript 包，因此用 `simpleMode` 实现真实语法，不用其他语言冒充。
+**验证:** `npx tsc --noEmit` 通过；全量 `npx vitest run` 37 文件 / 289 tests 全绿；`npm ci --dry-run` 通过。
+
+## 2026-11-09 — 补 Graphviz DOT 高亮（社区包 @viz-js/lang-dot）
+
+**Files:** Modify `app/frontend/package.json` + `package-lock.json`（新增 `@viz-js/lang-dot@1.0.5`）；Modify `app/frontend/src/language.ts`（新增 `dot` 模式，`.dot/.gv` 自动识别）；Modify `app/frontend/src/language.test.ts`（映射与 `digraph` 解析断言）；Modify `app/frontend/src/docKind.ts`（dot/gv 同步为非日志）。
+**Why:** 用户点名 Graphviz DOT 这类小众语言；此前 `.dot/.gv` 会静默回落 PlainText。
+**验证:** `npx tsc --noEmit` 通过；全量 `npx vitest run` 37 文件 / 289 tests 全绿；`npm ci --dry-run` 通过。
+
+## 2026-11-09 — 二次扩充语言覆盖：GraphQL / Solidity / Liquid / Angular / WASM + 20 余种 legacy 语言
+
+**Files:** Modify `app/frontend/package.json` + `package-lock.json`（新增 `cm6-graphql@1.0.0`、`@replit/codemirror-lang-solidity@6.0.2`、`@codemirror/lang-liquid@6.3.3`、`@codemirror/lang-angular@0.1.4`、`@codemirror/lang-wast@6.0.2`、`graphql@16.11.0`、`@codemirror/lint@^6.9.7`）；Modify `app/frontend/src/language.ts`（新增 GraphQL/Solidity/Liquid/Angular/WASM 与 Dockerfile/GNU Assembly/OCaml/F#/SML/CoffeeScript/Crystal/D/Elm/Fortran/Groovy/Julia/Pascal/Puppet/Pug/Scheme/Tcl/Visual Basic/LaTeX/Nginx/WebIDL/Properties；新增按文件名识别 Dockerfile/CMakeLists.txt/nginx.conf/Jenkinsfile/Gemfile/Rakefile/Vagrantfile）；Modify `app/frontend/src/editor.ts` + `main.ts`（AUTO 改为 `autoModeIdForPath`，传入完整路径）；Modify `app/frontend/src/language.test.ts`（映射、文件级识别、20+ 语言解析断言）；Modify `app/frontend/src/docKind.ts`（同步新增扩展名为非日志）。
+**Why:** 用户反馈「语言还是少了」；本轮按可用 legacy 模式与社区包做二次扩展，并补上无扩展名文件的识别。
+**验证:** `npx tsc --noEmit` 通过；全量 `npx vitest run` 37 文件 / 289 tests 全绿；`npm ci --dry-run` 通过。
+**仍缺:** Astro、HCL/Terraform、Zig 在 npm 上无可用 CM6 语言包（查询失败），暂不近似接入。
+
+## 2026-11-09 — 补 Verilog / VHDL 高亮
+
+**Files:** Modify `app/frontend/src/language.ts`（新增 `verilog`/`vhdl` 模式；`.v/.sv/.svh/.vh` → Verilog，`.vhd/.vhdl` → VHDL）；Modify `app/frontend/src/language.test.ts`（扩展名映射与解析断言）；Modify `app/frontend/src/docKind.ts`（同步为非日志）。
+**Why:** 用户询问 Verilog/VHDL 是否支持；此前 `.v/.vhd` 会静默回落 PlainText。SystemVerilog 用 Verilog 模式近似。
+**验证:** `npx tsc --noEmit` 通过；全量 `npx vitest run` 37 文件 / 287 tests 全绿。
+
+## 2026-11-09 — 引入社区语言包：PHP / Vue / Svelte / SCSS / Sass / Less
+
+**Files:** Modify `app/frontend/package.json` + `package-lock.json`（新增 `@codemirror/lang-php@6.0.2`、`@codemirror/lang-vue@0.1.3`、`@replit/codemirror-lang-svelte@6.0.0`、`@codemirror/lang-sass@6.0.2`、`@codemirror/lang-less@6.0.2`）；Modify `app/frontend/src/language.ts`（新增 php/vue/svelte/scss/sass/less 模式；PHP 以 HTML 为 base 语言，Sass 区分缩进语法）；Modify `app/frontend/src/language.test.ts`（扩展名映射 + 六种语言解析断言）；Modify `app/frontend/src/docKind.ts`（vue/svelte 同步为非日志）。
+**Why:** 上一条交付说明 PHP/Vue/Svelte 无现成包；用户要求引入社区包补齐常用前端/后端语言。
+**验证:** `npx tsc --noEmit` 通过；全量 `npx vitest run` 37 文件 / 287 tests 全绿；`npm ci --dry-run` 通过（lock 与 package.json 一致）。
+**环境备注:** 本机 npm 11 解析 `pdfjs-dist` 的 `@napi-rs/canvas` 可选依赖时仍报 `Invalid Version`；本次临时移除 pdfjs 的 `optionalDependencies`、清理 lock 中 canvas 条目后完成安装，再恢复 node_modules 内 pdfjs 元数据。CI（Node 20）应不受影响，`npm ci` 校验已通过。
+
+## 2026-11-09 — 补齐常用语言高亮并修正 JSX/TSX 方言
+
+**Files:** Modify `app/frontend/src/language.ts`（新增 `jsx`/`tsx` 方言；补 Go、C#、Kotlin、Scala、Dart、Objective-C、Swift、Ruby、Lua、Perl、Haskell、Erlang、R、Clojure、Protobuf、CMake；扩展名映射同步；`clike` 用单模块多方言复用）；Modify `app/frontend/src/language.test.ts`（新增映射、JSX/TSX 与 `.ts` 泛型差异、16 种新语言解析冒烟）；Modify `app/frontend/src/statusbar.test.ts`（去掉硬编码下拉索引，按 value 断言）；Modify `app/frontend/src/docKind.ts`（同步新增语言扩展名为非日志，避免 AI 面板误判）。
+**Why:** 审查发现 `.jsx` 使用未开 JSX 的 JS 解析器、`.ts` 反而开启 JSX（`<T,>` 泛型可能被误判）；Go/C#/Kotlin/Swift/Ruby 等常用语言落到 PlainText。
+**验证:** `npx tsc --noEmit` 通过；全量 `npx vitest run` 37 文件 / 287 tests 全绿。
+
+## 2026-11-09 — 修复 AI 面板在非日志文件上使用日志专用文案/动作
+
+**Files:** Add `app/frontend/src/docKind.ts`（`isLogDocument(path)`：代码/配置/数据/文档类扩展名判为非日志，`.log/.txt/无扩展名` 判为日志）+ `docKind.test.ts`；Modify `app/frontend/src/aipanel.ts`（空态标题/说明、模式下拉、placeholder、system prompt 按 `setDocKind(isLog)` 切换；非日志禁用「归纳错误模式」「总结查询结果」，explain 改「解释选中内容」）；Modify `app/frontend/src/aitasks.ts`（`buildExplainMessages` 新增 `isLog`，非日志使用文件语气与 `FILE_SYSTEM_PROMPT`）；Modify `app/frontend/src/main.ts`（`refreshPanels` 同步文档类型；右键 AI 子菜单按类型裁剪；`runAiScenario` 对非日志的 errors/query 明确阻断）；Modify `app/frontend/src/aipanel.test.ts`（新增非日志文案/禁用模式用例）。
+**Why:** 用户截图指出：当前文件不是日志时，AI 面板仍显示「针对当前日志提问」并提供日志专用动作，属于文案与功能错配。
+**验证:** `npx tsc --noEmit` 通过；全量 `npx vitest run` 37 文件 / 285 tests 全绿。
+
+## 2026-11-09 — 修复 gitpanel 测试在 Node 26 下的 localStorage 缺失
+
+**Files:** Modify `app/frontend/src/gitpanel.test.ts`（为测试注入内存版 `localStorage`：`Map` 实现 `Storage` 接口，经 `Object.defineProperty(globalThis, "localStorage", ...)` 安装，`beforeEach` 的 `localStorage.clear()` 恢复可用）。
+**Why:** Node 26 在未传 `--localstorage-file` 时全局 `localStorage` 为 undefined，且 vitest 的 jsdom 不透明源下 jsdom 自带的 `Storage` 会抛错；上一提交的全量测试唯一失败即 gitpanel 12 例，全部卡在 `beforeEach` 的 `localStorage.clear()`。该失败与右键菜单无关，但会掩盖真实回归。
+**验证:** `npx vitest run src/gitpanel.test.ts` 12 passed；全量 `npm test` 36 文件 / 281 tests 全绿；`npx tsc --noEmit` 通过。
+
+## 2026-11-09 — 全覆盖右键菜单（对齐 NoteLume）+ 合入 AI 自定义模型
+
+**依据：** 用户要求「所有右键参考 NoteLume 重绘，AI 要能自定义模型」。NoteLume 右键体系见 `src/main.js` 的 `placeMenu`/`makeMenuItem`/`showTreeMenu`/`attachEditorContextMenu`/`openEditContextMenu`/`openTabContextMenu`/`installGlobalContextMenu`，视觉见 `src/style.css` 的 `.cv-menu/.tree-menu/.cv-menu-item/.cv-menu-sep`。开工前先把已完成的 `origin/feat/ai-custom-model`（96cf458）fast-forward 合入 main，保留其「自定义」预设、手动填写模型与地址/模型分字段校验。
+
+### Task 1. 通用右键菜单模块
+**Files:** Add `app/frontend/src/contextmenu.ts`（单例 fixed 菜单、`clampMenuPosition` 视口内收、hover 子菜单、mousedown/Esc/wheel/resize 关闭、↑↓/Home/End/Enter 键盘导航；`CtxRow = 菜单项 | 分隔线 | 子菜单`）；Add `app/frontend/src/contextmenu.test.ts`（5 例：定位收边、点击执行、disabled 不执行、Esc/外部关闭、子菜单展开）；Modify `app/frontend/index.html`（新增 copy/cut/paste/select-all/external/bookmark/format/sort/follow/filter 图标）；Modify `app/frontend/src/styles.css`（`.ctx-menu` 190px/60vh/4px 内边距/`--r-md`/`--shadow-3`，行 28px/6px 圆角/hover 填充，层级高于模态）。
+**Why:** 此前全站没有任何 `contextmenu` 处理，右键会弹 WebView2 原生菜单（返回/刷新/检查），和 NoteLume 的自绘菜单观感完全不一致。
+
+### Task 2. 分区接入
+**Files:** Modify `app/frontend/src/main.ts`（`installContextMenus` 单一 document 委托：编辑器→剪贴板+行操作/格式化/书签/AI/视图子菜单；只读列表→复制选中行/AI 解释/错误归纳/查询面板/跟随尾部；CAN·解析·CSV 表格→复制单元格/整行/在日志中定位；MF4 表格→复制单元格/整行；PDF 查看区→复制选中文本；标签页与侧栏文档→关闭/关闭其他/关闭全部/复制路径/在文件管理器中显示；input/textarea/contenteditable→撤销/剪切/复制/粘贴/全选；其余区域→压制原生菜单且不弹自绘）；Modify `app/frontend/src/tabs.ts`（`.tab` 写入 `data-doc-id`）；Modify `app/frontend/src/listview.ts`（`selectLine()` 让右键行先成为选区）；Modify `app/src-tauri/src/commands.rs`（`reveal_in_folder`：Windows `explorer /select,`、macOS `open -R`、Linux `xdg-open`，不存在返回 `[not_found]`）、`app/src-tauri/src/lib.rs`（注册）；Modify `app/frontend/src/ipc.ts`（`revealInFolder`）。
+**Why:** 右键菜单必须落到日志/报文场景：编辑器与只读列表共用 AI 三场景，CAN/解析表格复用源行跳转，标签/侧栏复用既有 `handleClose` 的保存确认，未保存文档不会静默关闭。
+
+**验证:** `npx tsc --noEmit` 通过；`npm run build`（tsc + vite）通过；`npx vitest run src/contextmenu.test.ts src/listview.test.ts src/tabs.test.ts` 23 passed；全量 `npx vitest run` 281 tests 中 269 passed，唯一失败为既有 `gitpanel.test.ts`（Node 26 + jsdom 29 下全局 `localStorage` 为 undefined，12 例均卡在同一 `beforeEach`，与本次改动无关）；`cargo check -p lumelog-app` 通过。
+**未做 / 未验:** 未在真实 Tauri 窗口逐一右键点击走查（无交互桌面会话）；`reveal_in_folder` 未在 Windows 实际调用验证；`navigator.clipboard.readText()` 在 WebView2 的粘贴权限未实测（失败时 toast 提示，不静默）。
+
+## 2026-11-09 — AI 自定义模型（feat/ai-custom-model，未合 main）
+
+**依据：** NoteLume `src/ai-settings.js` 的预设 + `custom` 与 `customMemory`（切到预设再切回「自定义」时恢复已填地址/模型；`activePresetId` 只是高亮，不做地址回退），以及 `validateAiConfig` 的「缺少协议头 / 地址非法 / 模型为空」分档报错。LogLume 沿用既有的 `[ai]` 配置（`base_url`/`model`），不新增 schema。
+
+### Task. 设置弹层的「自定义」项与行内校验
+**Files:** Modify `app/frontend/src/aisettings.ts`（预设表加 `id`；新增「自定义」按钮与选中态；`customMemory` 保存切走时的地址/模型；`activePresetId` 只决定高亮；`baseUrlProblem`/`hostnameOf` 做协议头、空白、`new URL`、主机名检查；`validate` 改为返回字段 + 文案并写入 `.ai-err`；模型框始终可手填，拉取失败的行内提示明确「可直接手填模型名」）；Modify `app/frontend/src/styles.css`（`.ai-preset.active` 复用 `--accent`/`--accent-soft`，`.ai-err` 复用 `--danger`，未新增 token）；Modify `app/src-tauri/src/ai.rs`（`validate_config` 区分「缺少协议头」与「有协议但无主机名」，补单测）；Add `app/frontend/src/aisettings.test.ts`（5 例：自定义并列、切换保值、回显不含 Key、三类行内错误、拉取失败仍可手填）。
+**与 NoteLume 一致:** 「自定义」与预设同排、当前地址不在预设里就高亮自定义；切走再切回保留已填值；输入框始终可手填模型名；地址/模型分字段报错。
+**有意不同:** 没有按 host 分格的 Key 存储（LogLume 仍只有一个只写 Key）；未做 Ollama 探测/拉取与自动加载模型列表；模型候选仍用 `datalist`，测试连接按钮沿用既有「先保存再联网」流程。
+**验证:** `npm test` 276 passed / 35 文件；`npm run build`（`tsc --noEmit` + vite）通过；`cargo test -p lumelog-app ai::tests` 17 passed。真实窗口（CDP `:9222` + DPI 感知截图）：预设行含 6 项（含自定义），保存 `https://gw.example.com/v1` + `my-model` 后关闭重开原样回显且「自定义」高亮、Key 框为空；缺协议头/`https://`/空模型分别显示对应行内红字并把焦点移到该字段，未调用 `ai_config_set`；验证写入的临时 `config.toml` 已删除。
+**未做:** 未接真实自定义服务商做联网对话（无 Key）；未做自定义项的独立命名（配置里只留 base_url/model）。
+
 ## 2026-11-09 — AI 助手移植（feat/ai-assist，未合 main）
 
 **依据：** NoteLume `src-tauri/src/ai.rs`（SSE 流）、`src/ai-settings.js`（按 host:port 明文存 key）、`src/ai-tasks.js`（提示词/上下文上限）、`src/ai-inline.js`（选区悬浮条）、`src/ai-panel.js`（对话/历史）。LogLume 按「设置与凭据 → 基础对话/流式 → 日志场景」三块落地；默认关闭，用户显式开启并填写接口后才联网。

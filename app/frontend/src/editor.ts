@@ -58,7 +58,7 @@ import {
   type LanguageSupport,
 } from "@codemirror/language";
 import { loadAllText, type DocInfo } from "./ipc";
-import { autoModeId, resolveLanguage, type ModeId } from "./language";
+import { autoModeId, autoModeIdForPath, resolveLanguage, type ModeId } from "./language";
 import {
   applyLineOp,
   bookmarkNext,
@@ -233,6 +233,8 @@ export interface OpenEditableOpts {
   info: DocInfo;
   /** File extension (no dot) used to pick the starting syntax mode. */
   ext: string;
+  /** Full path, for whole-file modes like Dockerfile / CMakeLists.txt. */
+  path?: string;
   /** Initial word-wrap state (persisted UI flag; default off = CodeMirror default). */
   wrap?: boolean;
   /** Fires once on the first user edit (drives the tab dirty dot). */
@@ -284,7 +286,9 @@ export async function openEditable(opts: OpenEditableOpts): Promise<EditorHandle
     if (first) opts.onDirty?.();
   };
 
-  const lang = await resolveLanguage(autoModeId(opts.ext));
+  const lang = await resolveLanguage(
+    opts.path ? autoModeIdForPath(opts.path) : autoModeId(opts.ext),
+  );
   // Single font-size holder shared by the wheel handler and `zoomFont`.
   const zoom = { size: FONT_BASE };
   // True while a keymap-hooked word command is dispatching, so the follow-up

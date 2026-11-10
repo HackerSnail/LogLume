@@ -130,7 +130,7 @@
   --danger: #e5484d;
   --success: #248a3d;
   --win-close: #e81123;
-  --shadow: rgba(0, 0, 0, 0.28);              /* legacy colour alias */
+  --shadow: rgba(0, 0, 0, 0.28); /* legacy colour alias */
   /* Shadows are only used by NoteLume's floating layers (find bar, suggest,
      palette, prompt): no ambient card shadows anywhere. */
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.06);
@@ -169,10 +169,12 @@
 
   /* UI stack avoids 宋体; mono stack falls back to the system mono when the
    * nicer faces aren't installed. Shared across all three themes. */
-  --font-ui: "Inter", "HarmonyOS Sans", "Noto Sans SC", -apple-system, "Segoe UI",
+  --font-ui:
+    "Inter", "HarmonyOS Sans", "Noto Sans SC", -apple-system, "Segoe UI",
     "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, "SFMono-Regular",
-    Consolas, "Liberation Mono", Menlo, monospace;
+  --font-mono:
+    "JetBrains Mono", "Fira Code", ui-monospace, "SFMono-Regular", Consolas,
+    "Liberation Mono", Menlo, monospace;
   /* CodeMirror source-mode typography, straight from NoteLume's buildTheme
    * (`source-editor.js:36-59`): 14px, line-height 1.7. */
   --editor-font-family: var(--font-mono);
@@ -257,7 +259,11 @@
 }
 /* NoteLume signals focus with the border colour alone — no glow ring (:1449-1451,
  * :2224-2226). */
-:where(input:not([type="checkbox"]):not([type="radio"]), select, textarea):focus {
+:where(
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea
+):focus {
   border-color: var(--accent);
 }
 :where(input[type="checkbox"], input[type="radio"]) {
@@ -323,7 +329,6 @@
 .field:focus {
   border-color: var(--accent);
 }
-
 
 * {
   box-sizing: border-box;
@@ -548,6 +553,91 @@ html[data-tauri-platform="mac"] .win-btns {
 .app-menu .menu-sep {
   height: 1px;
   margin: 4px 6px;
+  background: var(--border);
+}
+
+/* Right-click menu: NoteLume `.cv-menu` parity — fixed, 190px min width,
+ * 60vh scroll cap, 4px inset, 6px item radius, hover-only fill. */
+.ctx-menu {
+  position: fixed;
+  z-index: calc(var(--z-modal) + 4);
+  min-width: 190px;
+  max-width: 360px;
+  max-height: 60vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-3);
+  font-size: 13px;
+}
+.ctx-menu-sub {
+  position: fixed;
+  z-index: calc(var(--z-modal) + 5);
+}
+.ctx-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: var(--h-control);
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--fg);
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+}
+.ctx-menu-item:hover:not(:disabled),
+.ctx-menu-item:focus {
+  background: var(--hover);
+  outline: none;
+}
+.ctx-menu-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.ctx-menu-item.danger {
+  color: var(--danger);
+}
+.ctx-menu-check {
+  width: 12px;
+  flex: 0 0 12px;
+  color: var(--accent);
+}
+.ctx-menu-check .ico,
+.ctx-menu-ico {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.ctx-menu-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ctx-menu-hint {
+  margin-left: 16px;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.ctx-menu-arrow {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.ctx-menu-sep {
+  height: 1px;
+  margin: 3px 4px;
   background: var(--border);
 }
 
@@ -2848,7 +2938,9 @@ html[data-tauri-platform="mac"] .win-btns {
   position: fixed;
   left: 50%;
   bottom: 48px;
-  z-index: var(--z-toast); /* above .recovery-banner: its buttons report via toast */
+  z-index: var(
+    --z-toast
+  ); /* above .recovery-banner: its buttons report via toast */
   transform: translateX(-50%) translateY(6px);
   max-width: 80vw;
   padding: 8px 12px;
@@ -3167,8 +3259,8 @@ html[data-tauri-platform="mac"] .win-btns {
 .can-hrow {
   display: flex;
   align-items: center;
-  height: 20px;          /* matches ROW_HEIGHT so header columns align with body */
-  white-space: nowrap;   /* same wrapping rule as .can-row cells */
+  height: 20px; /* matches ROW_HEIGHT so header columns align with body */
+  white-space: nowrap; /* same wrapping rule as .can-row cells */
   font-weight: 600;
   color: var(--fg);
 }
@@ -3254,6 +3346,20 @@ html[data-tauri-platform="mac"] .win-btns {
 .ai-preset:hover {
   background: var(--hover);
   border-color: var(--accent);
+}
+.ai-preset.active,
+.ai-preset.active:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.ai-err {
+  font-size: var(--fs-11, 11px);
+  color: var(--danger);
+  line-height: 1.4;
+}
+.ai-err:empty {
+  display: none;
 }
 .ai-sub {
   font-size: var(--fs-11, 11px);

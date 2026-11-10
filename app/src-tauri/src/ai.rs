@@ -168,11 +168,21 @@ pub fn validate_config(cfg: &AiConfig) -> Result<(), IpcError> {
     if cfg.base_url.chars().any(|c| c.is_whitespace() || c.is_control()) {
         return Err(IpcError::new("ai_bad_url", "接口地址不能包含空白或控制字符"));
     }
-    if !cfg.base_url.is_empty() && host_of(&cfg.base_url).is_none() {
-        return Err(IpcError::new(
-            "ai_bad_url",
-            "接口地址必须以 http:// 或 https:// 开头",
-        ));
+    if !cfg.base_url.is_empty() {
+        let has_scheme =
+            cfg.base_url.starts_with("http://") || cfg.base_url.starts_with("https://");
+        if !has_scheme {
+            return Err(IpcError::new(
+                "ai_bad_url",
+                "接口地址必须以 http:// 或 https:// 开头",
+            ));
+        }
+        if host_of(&cfg.base_url).is_none() {
+            return Err(IpcError::new(
+                "ai_bad_url",
+                "接口地址无效：缺少主机名（例如 https://api.example.com/v1）",
+            ));
+        }
     }
     if cfg.model.len() > MODEL_MAX {
         return Err(IpcError::new(
@@ -935,6 +945,16 @@ temperature = 0.7
             ..Default::default()
         };
         assert_eq!(validate_config(&spaced).unwrap_err().code, "ai_bad_url");
+        // Scheme present but no host: a specific message, not "missing scheme".
+        for empty_host in ["https://", "https:///v1", "http://:8080/v1"] {
+            let cfg = AiConfig {
+                base_url: empty_host.into(),
+                ..Default::default()
+            };
+            let err = validate_config(&cfg).unwrap_err();
+            assert_eq!(err.code, "ai_bad_url", "{empty_host}");
+            assert!(err.message.contains("主机名"), "{empty_host}: {}", err.message);
+        }
         let hot = AiConfig {
             temperature: 3.0,
             ..Default::default()

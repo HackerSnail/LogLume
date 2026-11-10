@@ -133,6 +133,28 @@ async function settle(): Promise<void> {
   await new Promise((r) => setTimeout(r, 0));
 }
 
+// Node 26 defines a `localStorage` global that is `undefined` unless
+// `--localstorage-file` is passed, and vitest's jsdom origin makes jsdom's
+// Storage throw. Give this suite a minimal in-memory Storage instead.
+const storage = new Map<string, string>();
+Object.defineProperty(globalThis, "localStorage", {
+  configurable: true,
+  value: {
+    get length() {
+      return storage.size;
+    },
+    clear: () => storage.clear(),
+    getItem: (key: string) => storage.get(key) ?? null,
+    key: (index: number) => Array.from(storage.keys())[index] ?? null,
+    removeItem: (key: string) => {
+      storage.delete(key);
+    },
+    setItem: (key: string, value: string) => {
+      storage.set(key, String(value));
+    },
+  } satisfies Storage,
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();

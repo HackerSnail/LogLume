@@ -324,6 +324,11 @@ export function appPing(): Promise<string> {
   return call<string>("app_ping");
 }
 
+/** Reveal a file in the OS file manager (right-click menu). */
+export function revealInFolder(path: string): Promise<void> {
+  return call<void>("reveal_in_folder", { path });
+}
+
 export function docOpen(
   path: string,
   onProgress: (p: IndexProgress) => void,

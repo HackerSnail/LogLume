@@ -10,21 +10,67 @@ export interface AiSettingsOpts {
 }
 
 /** Presets are endpoint + model only — never keys. */
-const PRESETS: { label: string; baseUrl: string; model: string }[] = [
-  { label: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
+const PRESETS: { id: string; label: string; baseUrl: string; model: string }[] = [
   {
+    id: "deepseek",
+    label: "DeepSeek",
+    baseUrl: "https://api.deepseek.com/v1",
+    model: "deepseek-chat",
+  },
+  {
+    id: "zhipu",
     label: "智谱",
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
     model: "glm-4-flash",
   },
-  { label: "Kimi", baseUrl: "https://api.moonshot.cn/v1", model: "moonshot-v1-8k" },
-  { label: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
   {
+    id: "kimi",
+    label: "Kimi",
+    baseUrl: "https://api.moonshot.cn/v1",
+    model: "moonshot-v1-8k",
+  },
+  {
+    id: "openai",
+    label: "OpenAI",
+    baseUrl: "https://api.openai.com/v1",
+    model: "gpt-4o-mini",
+  },
+  {
+    id: "ollama",
     label: "本机 Ollama",
     baseUrl: "http://127.0.0.1:11434/v1",
     model: "qwen2.5:7b",
   },
 ];
+
+/** Not a preset: any endpoint that matches no preset above (NoteLume parity). */
+const CUSTOM_ID = "custom";
+
+/** Scheme + host check for a non-empty base URL. Empty input has no message. */
+function baseUrlProblem(raw: string): string {
+  if (!raw) return "启用 AI 前需要填写接口地址。";
+  if (!/^https?:\/\//.test(raw)) {
+    return "接口地址必须以 http:// 或 https:// 开头。";
+  }
+  if (/\s/.test(raw)) return "接口地址不能包含空格。";
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return "接口地址格式无效，请检查主机名与端口（例如 https://api.example.com/v1）。";
+  }
+  if (!url.hostname) return "接口地址缺少主机名。";
+  return "";
+}
+
+/** Hostname used for the loopback no-key allowance (mirrors `is_loopback`). */
+function hostnameOf(raw: string): string {
+  try {
+    return new URL(raw).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -120,14 +166,29 @@ export function openAiSettingsModal(opts: AiSettingsOpts): void {
   const ackRow = el("label", "ai-ack");
   ackRow.append(ack, el("span", "", "我了解：发送的日志内容会发往上面填写的接口地址"));
 
+  // Inline, per-field errors (specific copy; never a silent preset fallback).
+  const baseErr = el("div", "ai-err ai-err-base");
+  baseErr.setAttribute("role", "alert");
+  const modelErr = el("div", "ai-err ai-err-model");
+  modelErr.setAttribute("role", "alert");
+  const tempErr = el("div", "ai-err ai-err-temp");
+  tempErr.setAttribute("role", "alert");
+
   const baseField = el("label", "ai-field");
-  baseField.append(el("span", "ai-label", "接口地址（OpenAI 兼容）"), baseInput);
+  baseField.append(el("span", "ai-label", "接口地址（OpenAI 兼容）"), baseInput, baseErr);
   const testBtn = el("button", "ai-preset ai-test", "测试连接 / 拉取模型…");
   testBtn.type = "button";
   const modelField = el("label", "ai-field");
-  modelField.append(el("span", "ai-label", "模型（可从测试连接的结果选择）"), modelInput, modelList, testBtn);
+  modelField.append(
+    el("span", "ai-label", "模型（可手填，也可从测试连接的结果选择）"),
+    modelInput,
+    modelList,
+    testBtn,
+    el("div", "ai-sub", "模型列表拉取失败或尚未配置时，直接手填模型名即可。"),
+    modelErr,
+  );
   const tempField = el("label", "ai-field");
-  tempField.append(el("span", "ai-label", "温度（0–2）"), tempInput);
+  tempField.append(el("span", "ai-label", "温度（0–2）"), tempInput, tempErr);
   const keyField = el("label", "ai-field");
   keyField.append(el("span", "ai-label", "API Key（只写，不回显）"), keyInput, keyHint, clearRow);
 
@@ -137,17 +198,92 @@ export function openAiSettingsModal(opts: AiSettingsOpts): void {
     "凭据说明：Key 以明文保存在本机 config.toml（当前用户的配置目录），不会发往你填写的接口地址以外的任何地方；本机回环地址不填 Key 也可用。",
   );
   const target = el("div", "ai-sub", "");
+  const presetBtns: { id: string; btn: HTMLButtonElement }[] = [];
+  /** Values typed while "自定义" was selected; restored when returning to it. */
+  let customMemory: { baseUrl: string; model: string } | null = null;
+
+  const activePresetId = (base: string): string => {
+    const v = base.trim();
+    return PRESETS.find((p) => p.baseUrl === v)?.id ?? CUSTOM_ID;
+  };
+
+  const syncPresetActive = (): void => {
+    const id = activePresetId(baseInput.value);
+    for (const { id: btnId, btn } of presetBtns) {
+      const on = btnId === id;
+      btn.classList.toggle("active", on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+  };
+
+  const setErr = (node: HTMLElement, msg: string): void => {
+    node.textContent = msg;
+  };
+
+  const clearErrors = (): void => {
+    setErr(baseErr, "");
+    setErr(modelErr, "");
+    setErr(tempErr, "");
+  };
+
+  const clearModelOptions = (): void => {
+    modelList.textContent = "";
+  };
+
+  /** Remember custom values before a preset overwrites the two inputs. */
+  const rememberCustom = (): void => {
+    const base = baseInput.value.trim();
+    if (base && activePresetId(base) === CUSTOM_ID) {
+      customMemory = { baseUrl: base, model: modelInput.value.trim() };
+    }
+  };
+
+  const selectPreset = (p: (typeof PRESETS)[number]): void => {
+    rememberCustom();
+    baseInput.value = p.baseUrl;
+    modelInput.value = p.model;
+    clearModelOptions();
+    clearErrors();
+    syncPresetActive();
+    target.textContent = p.baseUrl;
+    status.textContent = "";
+  };
 
   for (const p of PRESETS) {
     const b = el("button", "ai-preset", p.label);
     b.type = "button";
-    b.addEventListener("click", () => {
-      baseInput.value = p.baseUrl;
-      modelInput.value = p.model;
-      target.textContent = p.baseUrl;
-    });
+    b.dataset.preset = p.id;
+    b.addEventListener("click", () => selectPreset(p));
+    presetBtns.push({ id: p.id, btn: b });
     presetRow.append(b);
   }
+
+  const customBtn = el("button", "ai-preset", "自定义");
+  customBtn.type = "button";
+  customBtn.dataset.preset = CUSTOM_ID;
+  customBtn.title = "任意 OpenAI 兼容接口：自由填写 base URL 与模型名";
+  customBtn.addEventListener("click", () => {
+    if (activePresetId(baseInput.value) === CUSTOM_ID) {
+      // Already custom: keep every typed value, just hand over the cursor.
+      baseInput.focus();
+      return;
+    }
+    if (customMemory) {
+      baseInput.value = customMemory.baseUrl;
+      modelInput.value = customMemory.model;
+    } else {
+      baseInput.value = "";
+      modelInput.value = "";
+    }
+    clearModelOptions();
+    clearErrors();
+    syncPresetActive();
+    target.textContent = baseInput.value.trim();
+    status.textContent = "";
+    baseInput.focus();
+  });
+  presetBtns.push({ id: CUSTOM_ID, btn: customBtn });
+  presetRow.append(customBtn);
 
   const saveBtn = el("button", "keymap-close", "保存");
   const cancelBtn = el("button", "keymap-reset-all", "取消");
@@ -169,35 +305,69 @@ export function openAiSettingsModal(opts: AiSettingsOpts): void {
   clearKey.addEventListener("change", refreshKeyHint);
   baseInput.addEventListener("input", () => {
     target.textContent = baseInput.value.trim();
+    syncPresetActive();
+    setErr(baseErr, "");
+    setErr(modelErr, "");
   });
+  baseInput.addEventListener("blur", () => {
+    const base = baseInput.value.trim();
+    setErr(baseErr, base ? baseUrlProblem(base) : "");
+  });
+  modelInput.addEventListener("input", () => setErr(modelErr, ""));
 
-  const validate = (): string => {
+  interface FieldProblem {
+    field: HTMLElement | null;
+    msg: string;
+  }
+
+  /** Validate the whole form, writing inline errors and returning the first one. */
+  const validate = (): FieldProblem => {
+    clearErrors();
     const base = baseInput.value.trim();
     const model = modelInput.value.trim();
     const temp = Number(tempInput.value);
     const enabling = enabledChk.checked && !cfg?.enabled;
     if (enabling && !ack.checked) {
-      return "开启 AI 前请先勾选“我了解内容会发往上述地址”。";
+      return {
+        field: ack,
+        msg: "开启 AI 前请先勾选“我了解内容会发往上述地址”。",
+      };
+    }
+    // A non-empty endpoint is always checked, even while AI stays disabled.
+    const baseMsg = base || enabledChk.checked ? baseUrlProblem(base) : "";
+    if (baseMsg) {
+      setErr(baseErr, baseMsg);
+      return { field: baseInput, msg: baseMsg };
+    }
+    if (enabledChk.checked && !model) {
+      const msg = "启用 AI 前需要填写模型名（可手填，不必等模型列表）。";
+      setErr(modelErr, msg);
+      return { field: modelInput, msg };
     }
     if (enabledChk.checked) {
-      if (!base) return "启用 AI 前需要填写接口地址。";
-      if (!/^https?:\/\/\S+$/i.test(base)) return "接口地址必须以 http:// 或 https:// 开头。";
-      if (!model) return "启用 AI 前需要填写模型名。";
-      const local = /^https?:\/\/(127\.|localhost|\[::1\])/i.test(base);
+      const host = hostnameOf(base);
+      const local =
+        host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host.startsWith("127.");
       const hasKey = cfg?.hasKey || keyInput.value.trim().length > 0;
       if (!local && (!hasKey || clearKey.checked)) {
-        return "这个接口不是本机地址，需要填写 API Key。";
+        const msg = "这个接口不是本机地址，需要填写 API Key。";
+        return { field: keyInput, msg };
       }
     }
-    if (!Number.isFinite(temp) || temp < 0 || temp > 2) return "温度必须在 0 到 2 之间。";
-    return "";
+    if (!Number.isFinite(temp) || temp < 0 || temp > 2) {
+      const msg = "温度必须在 0 到 2 之间。";
+      setErr(tempErr, msg);
+      return { field: tempInput, msg };
+    }
+    return { field: null, msg: "" };
   };
 
   const doSave = async (): Promise<boolean> => {
     if (saving || !cfg) return false;
     const problem = validate();
-    if (problem) {
-      status.textContent = problem;
+    if (problem.msg) {
+      status.textContent = problem.msg;
+      problem.field?.focus();
       return false;
     }
     saving = true;
@@ -253,10 +423,10 @@ export function openAiSettingsModal(opts: AiSettingsOpts): void {
         }
         status.textContent =
           ids.length === 0
-            ? "连接成功，但接口没有返回可用的对话模型。"
+            ? "连接成功，但接口没有返回可用的对话模型；可直接手填模型名。"
             : `连接成功：${ids.length} 个对话模型，可在模型框中选择。`;
       } catch (err) {
-        status.textContent = errText(err);
+        status.textContent = `${errText(err)}（模型列表不可用，可直接在模型框手填模型名）`;
       } finally {
         testBtn.disabled = false;
       }
@@ -299,6 +469,8 @@ export function openAiSettingsModal(opts: AiSettingsOpts): void {
     tempInput.value = String(cfg.temperature);
     ack.checked = cfg.enabled; // already opted in: no need to re-confirm
     target.textContent = cfg.baseUrl;
+    clearErrors();
+    syncPresetActive(); // a saved custom endpoint lights up "自定义", not a preset
     refreshKeyHint();
     status.textContent = cfg.enabled ? "" : "AI 当前未启用。";
     saveBtn.disabled = false;

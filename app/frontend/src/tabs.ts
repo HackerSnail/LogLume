@@ -62,6 +62,7 @@ export class TabStrip {
   add(info: TabInfo, view: TabView): void {
     const el = document.createElement("div");
     el.className = "tab";
+    el.dataset.docId = String(info.docId);
     el.title = info.path;
     const dot = document.createElement("span");
     dot.className = "dirty-dot";

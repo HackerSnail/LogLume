@@ -31,17 +31,27 @@ export interface AiPanelDeps {
   runScenario: (kind: AiScenario, note?: string) => void;
 }
 
-/** Neutral system prompt for plain follow-up turns. */
-const CHAT_SYSTEM =
-  "你是 LogLume 的日志分析助手。只依据用户在本轮及历史消息里提供的日志内容回答；" +
-  "不要编造日志中不存在的错误码、时间或行号。区分事实与推测，引用行号时写成 L<数字>。用中文回答。";
+/** Neutral system prompt; log wording only when the active file is a log. */
+function chatSystem(isLog: boolean): string {
+  return isLog
+    ? "你是 LogLume 的日志分析助手。只依据用户在本轮及历史消息里提供的日志内容回答；" +
+        "不要编造日志中不存在的错误码、时间或行号。区分事实与推测，引用行号时写成 L<数字>。用中文回答。"
+    : "你是 LogLume 的文件内容分析助手。只依据用户在本轮及历史消息里提供的文件内容回答；" +
+        "不要编造文件中不存在的内容。区分事实与推测，引用行号时写成 L<数字>。用中文回答。";
+}
 
-const PLACEHOLDERS: Record<AiMode, string> = {
-  chat: "询问这段日志…（Enter 发送，Shift+Enter 换行）",
-  explain: "解释选中的日志行…（可补充要求，Enter 发送）",
-  errors: "归纳错误模式…（可补充要求，Enter 发送）",
-  query: "总结当前查询结果…（可补充要求，Enter 发送）",
-};
+function placeholders(isLog: boolean): Record<AiMode, string> {
+  return {
+    chat: isLog
+      ? "询问这段日志…（Enter 发送，Shift+Enter 换行）"
+      : "询问当前内容…（Enter 发送，Shift+Enter 换行）",
+    explain: isLog
+      ? "解释选中的日志行…（可补充要求，Enter 发送）"
+      : "解释选中的内容…（可补充要求，Enter 发送）",
+    errors: "归纳错误模式…（可补充要求，Enter 发送）",
+    query: "总结当前查询结果…（可补充要求，Enter 发送）",
+  };
+}
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -75,12 +85,17 @@ export class AiPanel {
   private readonly noticeEl: HTMLElement;
   private readonly badgeEl: HTMLElement;
   private readonly emptyEl: HTMLElement;
+  private readonly emptyTitle: HTMLElement;
+  private readonly emptyBody: HTMLElement;
   private readonly inputEl: HTMLTextAreaElement;
   private readonly modeEl: HTMLSelectElement;
+  private readonly modeOpts = new Map<AiMode, HTMLOptionElement>();
   private readonly modelEl: HTMLButtonElement;
   private readonly sendBtn: HTMLButtonElement;
   private readonly stopBtn: HTMLButtonElement;
   private readonly foldBtn: HTMLButtonElement;
+  /** Whether the active document is a log (drives copy + action gating). */
+  private docIsLog = true;
   /** Conversation history as user/assistant turns (system prompts are per turn). */
   private history: AiMessage[] = [];
   private active: {
@@ -128,8 +143,8 @@ export class AiPanel {
     this.noticeEl = el("div", "ai-notice", "");
     this.logEl = el("div", "ai-log");
     this.emptyEl = el("div", "ai-empty");
-    const emptyTitle = el("div", "ai-empty-title", "针对当前日志提问");
-    const emptyBody = el(
+    this.emptyTitle = el("div", "ai-empty-title", "针对当前日志提问");
+    this.emptyBody = el(
       "div",
       "ai-empty-body",
       "解释选中行、归纳错误模式、总结查询结果，都是这条对话里的动作：在下方选好模式后发送即可。",
@@ -137,13 +152,13 @@ export class AiPanel {
     const goSettings = el("button", "ai-primary", "前往 AI 设置…");
     goSettings.type = "button";
     goSettings.addEventListener("click", () => this.deps.openSettings());
-    this.emptyEl.append(emptyTitle, emptyBody, goSettings);
+    this.emptyEl.append(this.emptyTitle, this.emptyBody, goSettings);
     this.logEl.append(this.emptyEl);
 
     const compose = el("div", "ai-compose");
     this.inputEl = el("textarea", "ai-input-box");
     this.inputEl.rows = 3;
-    this.inputEl.placeholder = PLACEHOLDERS.chat;
+    this.inputEl.placeholder = placeholders(this.docIsLog).chat;
     this.inputEl.addEventListener("input", () => this.refresh());
     this.inputEl.addEventListener("keydown", (e) => {
       if (e.key !== "Enter" || e.shiftKey) return;
@@ -164,10 +179,11 @@ export class AiPanel {
       const opt = document.createElement("option");
       opt.value = value;
       opt.textContent = label;
+      this.modeOpts.set(value, opt);
       this.modeEl.append(opt);
     }
     this.modeEl.addEventListener("change", () => {
-      this.inputEl.placeholder = PLACEHOLDERS[this.modeEl.value as AiMode] ?? PLACEHOLDERS.chat;
+      this.syncPlaceholder();
       this.refresh();
     });
     this.modelEl = el("button", "ai-model", "未配置");
@@ -194,6 +210,32 @@ export class AiPanel {
 
     void listenAiEvents((ev) => this.onEvent(ev));
     this.refresh();
+  }
+
+  /** Re-render copy/actions for the active document kind (log vs other file). */
+  setDocKind(isLog: boolean): void {
+    if (this.docIsLog === isLog) return;
+    this.docIsLog = isLog;
+    this.emptyTitle.textContent = isLog ? "针对当前日志提问" : "针对当前文件提问";
+    this.emptyBody.textContent = isLog
+      ? "解释选中行、归纳错误模式、总结查询结果，都是这条对话里的动作：在下方选好模式后发送即可。"
+      : "解释选中内容，或直接在下方输入问题发送。归纳错误模式与查询总结仅适用于日志，已禁用。";
+    const explain = this.modeOpts.get("explain");
+    if (explain) explain.textContent = isLog ? "解释选中行" : "解释选中内容";
+    for (const mode of ["errors", "query"] as const) {
+      const opt = this.modeOpts.get(mode);
+      if (opt) opt.disabled = !isLog;
+    }
+    if (!isLog && (this.modeEl.value === "errors" || this.modeEl.value === "query")) {
+      this.modeEl.value = "chat";
+    }
+    this.syncPlaceholder();
+    this.refresh();
+  }
+
+  private syncPlaceholder(): void {
+    const text = placeholders(this.docIsLog);
+    this.inputEl.placeholder = text[this.modeEl.value as AiMode] ?? text.chat;
   }
 
   get isExpanded(): boolean {
@@ -292,7 +334,7 @@ export class AiPanel {
     const userTurn = [...turns].reverse().find((m) => m.role === "user") ?? null;
     if (!userTurn) return;
     const request: AiMessage[] = [
-      sys ?? { role: "system", content: CHAT_SYSTEM },
+      sys ?? { role: "system", content: chatSystem(this.docIsLog) },
       ...this.history,
       ...turns,
     ];
@@ -327,7 +369,7 @@ export class AiPanel {
     this.inputEl.value = "";
     const userTurn: AiMessage = { role: "user", content: text };
     const request: AiMessage[] = [
-      { role: "system", content: CHAT_SYSTEM },
+      { role: "system", content: chatSystem(this.docIsLog) },
       ...this.history,
       userTurn,
     ];

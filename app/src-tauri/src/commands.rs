@@ -2975,3 +2975,35 @@ pub fn git_resolve_conflict(
 ) -> Result<(), IpcError> {
     crate::gitinfo::git_resolve_conflict(Path::new(&root), &path, &side).map_err(git_err)
 }
+/// Reveal a file in the system file manager (right-click menu parity).
+#[tauri::command]
+pub fn reveal_in_folder(path: String) -> Result<(), IpcError> {
+    let p = Path::new(&path);
+    if !p.exists() {
+        return Err(IpcError::new("not_found", format!("文件不存在：{path}")));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(format!("/select,{path}"))
+            .spawn()
+            .map_err(|e| IpcError::new("io", format!("无法打开文件管理器：{e}")))?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| IpcError::new("io", format!("无法打开访达：{e}")))?;
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let dir = p.parent().unwrap_or(p);
+        std::process::Command::new("xdg-open")
+            .arg(dir)
+            .spawn()
+            .map_err(|e| IpcError::new("io", format!("无法打开文件管理器：{e}")))?;
+    }
+    Ok(())
+}

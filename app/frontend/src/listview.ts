@@ -196,6 +196,13 @@ export class ListView implements TabView {
     this.render(true);
   }
 
+  /** Select exactly one original 0-based line (right-click targets it). */
+  selectLine(line0: number): void {
+    this.selAnchor = line0;
+    this.selHead = line0;
+    this.render(true);
+  }
+
   private onRowMouseDown(e: MouseEvent): void {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement | null;

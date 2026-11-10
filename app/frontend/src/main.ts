@@ -87,6 +87,7 @@ import {
   recentClear,
   viewerPdfBytes,
   launchArgs,
+  revealInFolder,
   aiConfigGet,
   type AiConfigView,
   fifRun,
@@ -127,7 +128,7 @@ import { type CanFilter } from "./canfilter";
 import { TabStrip } from "./tabs";
 import { Statusbar } from "./statusbar";
 import { extOf } from "./encoding-menu";
-import { autoModeId, registerPluginLanguages, syntaxModes, type ModeId } from "./language";
+import { autoModeIdForPath, registerPluginLanguages, syntaxModes, type ModeId } from "./language";
 import { initTheme } from "./theme";
 import { mountGitPanel } from "./gitpanel";
 import {
@@ -141,6 +142,8 @@ import {
   MAX_INSPECTOR,
 } from "./shell";
 import { filterCommands, type Command } from "./palette";
+import { showContextMenu, type CtxRow } from "./contextmenu";
+import { isLogDocument } from "./docKind";
 import { parseBookmarkStore, serializeBookmarkStore, type BookmarkStore } from "./bookmarks-store";
 import {
   formatJson,
@@ -918,6 +921,7 @@ function refreshSidebar(): void {
   for (const info of infos) {
     const row = document.createElement("div");
     row.className = "side-item";
+    row.dataset.docId = String(info.docId);
     row.title = info.path;
     if (info.docId === activeId) row.classList.add("active");
     const enc = docStates.get(info.docId)?.encoding;
@@ -934,6 +938,499 @@ function refreshSidebar(): void {
     row.addEventListener("click", () => tabs.activate(info.docId));
     list.append(row);
   }
+}
+
+// ---- Context menus (NoteLume `.cv-menu` parity) -----------------------------
+// One document-level listener decides the menu by region. Areas that own a
+// custom menu preventDefault in the same handler; everything else suppresses
+// the WebView2 native menu without opening our own (NoteLume's global fallback).
+
+let contextMenusInstalled = false;
+
+function copyText(text: string, okMsg?: string): void {
+  void navigator.clipboard
+    .writeText(text)
+    .then(() => {
+      if (okMsg) toastMsg(okMsg);
+    })
+    .catch(() => toastMsg("复制失败：剪贴板不可用"));
+}
+
+function docPathOf(docId: number): string | null {
+  const info = tabs.list().find((t) => t.docId === docId);
+  return info?.path ?? docStates.get(docId)?.path ?? null;
+}
+
+function revealDocPath(path: string | null): void {
+  if (!path) {
+    toastMsg("这个文档没有可显示的路径");
+    return;
+  }
+  void revealInFolder(path).catch(reportError);
+}
+
+/** Close every tab except `keep`; stops when the user cancels a save prompt. */
+function closeOtherDocs(keep: number): void {
+  void (async () => {
+    for (const id of tabs.list().map((t) => t.docId)) {
+      if (id === keep) continue;
+      if (!(await handleClose(id))) break;
+    }
+  })();
+}
+
+function closeAllDocs(): void {
+  void (async () => {
+    for (const id of tabs.list().map((t) => t.docId)) {
+      if (!(await handleClose(id))) break;
+    }
+  })();
+}
+
+function openInputContextMenu(e: MouseEvent, target: HTMLElement): void {
+  const editable = target.closest<HTMLElement>("input, textarea, [contenteditable='true']");
+  if (!editable) return;
+  const isBox = editable instanceof HTMLInputElement || editable instanceof HTMLTextAreaElement;
+  const boxSel = (): [number, number] | null => {
+    if (!isBox) return null;
+    try {
+      return [editable.selectionStart ?? 0, editable.selectionEnd ?? 0];
+    } catch {
+      return null;
+    }
+  };
+  const hasSel = (): boolean => {
+    if (isBox) {
+      const s = boxSel();
+      return !!s && s[0] !== s[1];
+    }
+    const s = window.getSelection();
+    return !!s && !s.isCollapsed && !!s.anchorNode && editable.contains(s.anchorNode);
+  };
+  const selText = (): string => {
+    if (isBox) {
+      const s = boxSel();
+      return s ? editable.value.slice(s[0], s[1]) : "";
+    }
+    return String(window.getSelection() ?? "");
+  };
+  const replaceSelection = (text: string): void => {
+    if (isBox) {
+      const s = boxSel() ?? [editable.value.length, editable.value.length];
+      editable.setRangeText(text, s[0], s[1], "end");
+      editable.dispatchEvent(new Event("input", { bubbles: true }));
+    } else {
+      document.execCommand("insertText", false, text);
+    }
+  };
+  const rows: CtxRow[] = [
+    {
+      label: "撤销",
+      hint: "Ctrl+Z",
+      icon: "i-undo",
+      run: () => {
+        editable.focus();
+        document.execCommand("undo");
+      },
+    },
+    {
+      label: "剪切",
+      hint: "Ctrl+X",
+      icon: "i-cut",
+      disabled: !hasSel(),
+      run: () => {
+        void navigator.clipboard
+          .writeText(selText())
+          .then(() => replaceSelection(""))
+          .catch(() => toastMsg("剪切失败：剪贴板不可用"));
+      },
+    },
+    {
+      label: "复制",
+      hint: "Ctrl+C",
+      icon: "i-copy",
+      disabled: !hasSel(),
+      run: () => copyText(selText(), "已复制"),
+    },
+    {
+      label: "粘贴",
+      hint: "Ctrl+V",
+      icon: "i-paste",
+      run: () => {
+        void (async () => {
+          try {
+            const text = await navigator.clipboard.readText();
+            if (text) replaceSelection(text);
+          } catch {
+            toastMsg("粘贴失败：剪贴板不可用");
+          }
+        })();
+      },
+    },
+    "sep",
+    {
+      label: "全选",
+      hint: "Ctrl+A",
+      icon: "i-select-all",
+      run: () => {
+        editable.focus();
+        if (isBox) editable.select();
+        else document.execCommand("selectAll");
+      },
+    },
+  ];
+  showContextMenu(e.clientX, e.clientY, rows);
+}
+
+function aiMenuItems(isLog: boolean, canExplain: boolean): CtxRow[] {
+  const rows: CtxRow[] = [
+    {
+      label: isLog ? "解释选中行" : "解释选中内容",
+      icon: "i-spark",
+      disabled: !canExplain,
+      run: () => void runAiScenario("explain"),
+    },
+  ];
+  if (isLog) {
+    rows.push(
+      { label: "归纳错误模式", icon: "i-spark", run: () => void runAiScenario("errors") },
+      { label: "总结查询结果", icon: "i-spark", run: () => void runAiScenario("query") },
+    );
+  }
+  rows.push("sep", { label: "AI 设置…", run: () => openAiSettings() });
+  return rows;
+}
+
+function openEditorContextMenu(e: MouseEvent, handle: EditorHandle): void {
+  const view = handle.view;
+  const hasSel = !view.state.selection.main.empty;
+  const logDoc = isLogDocument(tabs.active()?.info.path ?? null);
+  const copy = (): void => {
+    const s = view.state.selection.main;
+    if (!s.empty) copyText(view.state.sliceDoc(s.from, s.to), "已复制");
+  };
+  const cut = (): void => {
+    const s = view.state.selection.main;
+    if (s.empty) return;
+    const text = view.state.sliceDoc(s.from, s.to);
+    void navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        view.dispatch({ changes: { from: s.from, to: s.to } });
+        view.focus();
+      })
+      .catch(() => toastMsg("剪切失败：剪贴板不可用"));
+  };
+  const paste = (): void => {
+    const s = view.state.selection.main;
+    void (async () => {
+      try {
+        const text = await navigator.clipboard.readText();
+        if (!text) return;
+        view.dispatch({
+          changes: { from: s.from, to: s.to, insert: text },
+          selection: { anchor: s.from + text.length },
+        });
+        view.focus();
+      } catch {
+        toastMsg("粘贴失败：剪贴板不可用");
+      }
+    })();
+  };
+  const selectAll = (): void => {
+    view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
+    view.focus();
+  };
+  const rows: CtxRow[] = [
+    { label: "剪切", hint: "Ctrl+X", icon: "i-cut", disabled: !hasSel, run: cut },
+    { label: "复制", hint: "Ctrl+C", icon: "i-copy", disabled: !hasSel, run: copy },
+    { label: "粘贴", hint: "Ctrl+V", icon: "i-paste", run: paste },
+    { label: "全选", hint: "Ctrl+A", icon: "i-select-all", run: selectAll },
+    "sep",
+    { label: "查找 / 替换…", hint: "Ctrl+F", icon: "i-search", run: () => handle.openSearch() },
+    "sep",
+    {
+      label: "行操作",
+      icon: "i-sort",
+      items: [
+        { label: "排序（升序）", run: () => handle.lineOp("sort-asc") },
+        { label: "排序（降序）", run: () => handle.lineOp("sort-desc") },
+        { label: "去重", run: () => handle.lineOp("dedupe") },
+        { label: "反转", run: () => handle.lineOp("reverse") },
+        "sep",
+        { label: "转大写", run: () => handle.lineOp("upper") },
+        { label: "转小写", run: () => handle.lineOp("lower") },
+        { label: "Trim 首尾空格", run: () => handle.lineOp("trim") },
+        { label: "删除空行", run: () => handle.lineOp("drop-empty") },
+        { label: "合并为一行", run: () => handle.lineOp("join") },
+      ],
+    },
+    {
+      label: "格式化",
+      icon: "i-format",
+      items: [
+        { label: "JSON：格式化", run: () => applyFormatter("json") },
+        { label: "JSON：压缩", run: () => applyFormatter("json-min") },
+        { label: "XML：格式化", run: () => applyFormatter("xml") },
+        { label: "SQL：排版", run: () => applyFormatter("sql") },
+      ],
+    },
+    {
+      label: "书签",
+      icon: "i-bookmark",
+      items: [
+        { label: "切换当前行", hint: "Ctrl+F2", run: () => handle.toggleBookmark() },
+        { label: "下一条", hint: "F2", run: () => handle.nextBookmark() },
+        { label: "上一条", hint: "Shift+F2", run: () => handle.prevBookmark() },
+        "sep",
+        { label: "清除全部", run: () => handle.clearBookmarks() },
+      ],
+    },
+    {
+      label: "AI",
+      icon: "i-spark",
+      items: aiMenuItems(logDoc, hasSel),
+    },
+    "sep",
+    {
+      label: "视图",
+      icon: "i-sidebar",
+      items: [
+        { label: "切换自动换行", checked: editorWrapOn, run: () => toggleEditorWrap() },
+        { label: "放大字体", run: () => handle.zoomFont(1) },
+        { label: "缩小字体", run: () => handle.zoomFont(-1) },
+        { label: "重置字体", run: () => handle.fontReset() },
+      ],
+    },
+  ];
+  showContextMenu(e.clientX, e.clientY, rows);
+}
+
+function openListContextMenu(e: MouseEvent, list: ListView, docId: number): void {
+  const target = e.target as HTMLElement;
+  const row = target.closest(".list-row") as HTMLElement | null;
+  const raw = row?.dataset.line;
+  if (raw !== undefined) {
+    const line0 = Number(raw);
+    const cur = list.selectedLines();
+    if (Number.isFinite(line0) && (!cur || line0 < cur.from || line0 > cur.to)) {
+      list.selectLine(line0);
+    }
+  }
+  const sel = list.selectedLines();
+  const count = sel ? sel.to - sel.from + 1 : 0;
+  const logDoc = isLogDocument(tabs.active()?.info.path ?? null);
+  const copySelected = (): void => {
+    if (!sel) return;
+    void (async () => {
+      const indices: number[] = [];
+      for (let i = sel.from; i <= sel.to; i++) indices.push(i);
+      const lines = await loadLogLines(docId, indices);
+      if (lines.length === 0) {
+        toastMsg("选中行尚未索引完成");
+        return;
+      }
+      copyText(lines.map((l) => l.text).join("\n"), `已复制 ${lines.length} 行`);
+    })();
+  };
+  const followOn = followStates.get(docId)?.on === true;
+  const rows: CtxRow[] = [
+    {
+      label: count > 1 ? `复制选中行（${count} 行）` : "复制该行",
+      icon: "i-copy",
+      disabled: !sel,
+      run: copySelected,
+    },
+    "sep",
+    {
+      label: "AI",
+      icon: "i-spark",
+      items: aiMenuItems(logDoc, !!sel),
+    },
+    "sep",
+    { label: "打开查询面板（过滤 / 高亮）", icon: "i-search", run: () => openQueryPanel() },
+    {
+      label: "跟随尾部",
+      icon: "i-follow",
+      checked: followOn,
+      run: () => setFollow(!followOn),
+    },
+  ];
+  showContextMenu(e.clientX, e.clientY, rows);
+}
+
+function openTableContextMenu(e: MouseEvent): void {
+  const target = e.target as HTMLElement;
+  const signalCell = target.closest(".can-signals td") as HTMLElement | null;
+  const row = target.closest(".can-row") as HTMLElement | null;
+  const cell = target.closest(".can-cell") as HTMLElement | null;
+  if (!row && !signalCell) return;
+  const cellText = signalCell?.textContent ?? cell?.textContent ?? "";
+  const rowText = signalCell
+    ? Array.from(signalCell.parentElement?.querySelectorAll("td") ?? [])
+        .map((td) => td.textContent ?? "")
+        .join("\t")
+    : Array.from(row?.querySelectorAll(".can-cell") ?? [])
+        .map((c) => c.textContent ?? "")
+        .join("\t");
+  const first = row?.querySelector(".can-cell")?.textContent ?? "";
+  const lineNumber = Number(first);
+  const rows: CtxRow[] = [
+    {
+      label: "复制单元格",
+      icon: "i-copy",
+      disabled: cellText === "",
+      run: () => copyText(cellText, "已复制单元格"),
+    },
+    {
+      label: "复制整行",
+      icon: "i-copy",
+      disabled: rowText === "",
+      run: () => copyText(rowText, "已复制整行"),
+    },
+    "sep",
+    {
+      label: "在日志中定位",
+      icon: "i-target",
+      disabled: !row || !Number.isInteger(lineNumber) || blfView !== null,
+      run: () => revealSourceLine(lineNumber),
+    },
+  ];
+  showContextMenu(e.clientX, e.clientY, rows);
+}
+
+function openMf4ContextMenu(e: MouseEvent): void {
+  const target = e.target as HTMLElement;
+  const td = target.closest(".mf4-table-el td") as HTMLTableCellElement | null;
+  if (!td) return;
+  const tr = td.parentElement as HTMLTableRowElement | null;
+  const cellText = td.textContent ?? "";
+  const rowText = tr ? Array.from(tr.cells).map((c) => c.textContent ?? "").join("\t") : "";
+  const rows: CtxRow[] = [
+    { label: "复制单元格", icon: "i-copy", run: () => copyText(cellText, "已复制单元格") },
+    { label: "复制整行", icon: "i-copy", run: () => copyText(rowText, "已复制整行") },
+  ];
+  showContextMenu(e.clientX, e.clientY, rows);
+}
+
+function openTabContextMenu(e: MouseEvent): void {
+  const target = e.target as HTMLElement;
+  const tabEl = target.closest(".tab") as HTMLElement | null;
+  const docId = Number(tabEl?.dataset.docId);
+  if (!Number.isFinite(docId)) return;
+  const path = docPathOf(docId);
+  const many = tabs.list().length > 1;
+  const rows: CtxRow[] = [
+    { label: "关闭", icon: "i-close", run: () => tabs.requestClose(docId) },
+    { label: "关闭其他", disabled: !many, run: () => closeOtherDocs(docId) },
+    { label: "关闭全部", run: closeAllDocs },
+    "sep",
+    {
+      label: "复制路径",
+      icon: "i-copy",
+      disabled: !path,
+      run: () => path && copyText(path, "已复制路径"),
+    },
+    {
+      label: "在文件管理器中显示",
+      icon: "i-external",
+      disabled: !path,
+      run: () => revealDocPath(path),
+    },
+  ];
+  showContextMenu(e.clientX, e.clientY, rows);
+}
+
+function openSideItemContextMenu(e: MouseEvent): void {
+  const target = e.target as HTMLElement;
+  const item = target.closest(".side-item") as HTMLElement | null;
+  const docId = Number(item?.dataset.docId);
+  if (!Number.isFinite(docId)) return;
+  const path = docPathOf(docId);
+  const many = tabs.list().length > 1;
+  const rows: CtxRow[] = [
+    { label: "切换到该文档", icon: "i-doc", run: () => tabs.activate(docId) },
+    "sep",
+    { label: "关闭", icon: "i-close", run: () => tabs.requestClose(docId) },
+    { label: "关闭其他", disabled: !many, run: () => closeOtherDocs(docId) },
+    { label: "关闭全部", run: closeAllDocs },
+    "sep",
+    {
+      label: "复制路径",
+      icon: "i-copy",
+      disabled: !path,
+      run: () => path && copyText(path, "已复制路径"),
+    },
+    {
+      label: "在文件管理器中显示",
+      icon: "i-external",
+      disabled: !path,
+      run: () => revealDocPath(path),
+    },
+  ];
+  showContextMenu(e.clientX, e.clientY, rows);
+}
+
+function installContextMenus(): void {
+  if (contextMenusInstalled) return;
+  contextMenusInstalled = true;
+  document.addEventListener("contextmenu", (e) => {
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+    closeAppMenu();
+    if (target.closest(".cm-editor")) {
+      e.preventDefault();
+      const handle = activeEditor();
+      if (handle) openEditorContextMenu(e, handle);
+      return;
+    }
+    if (target.closest(".listview")) {
+      e.preventDefault();
+      const a = tabs.active();
+      const list = a ? lists.get(a.info.docId) : undefined;
+      if (a && list) openListContextMenu(e, list, a.info.docId);
+      return;
+    }
+    if (target.closest(".canpanel")) {
+      e.preventDefault();
+      openTableContextMenu(e);
+      return;
+    }
+    if (target.closest(".mf4-table-el")) {
+      e.preventDefault();
+      openMf4ContextMenu(e);
+      return;
+    }
+    if (target.closest(".pdf-page-wrap")) {
+      e.preventDefault();
+      const selected = window.getSelection()?.toString() ?? "";
+      showContextMenu(e.clientX, e.clientY, [
+        {
+          label: "复制选中文本",
+          icon: "i-copy",
+          disabled: selected.trim() === "",
+          run: () => copyText(selected, "已复制"),
+        },
+      ]);
+      return;
+    }
+    if (target.closest(".tab")) {
+      e.preventDefault();
+      openTabContextMenu(e);
+      return;
+    }
+    if (target.closest(".side-item")) {
+      e.preventDefault();
+      openSideItemContextMenu(e);
+      return;
+    }
+    if (target.closest("input, textarea, [contenteditable='true']")) {
+      e.preventDefault();
+      openInputContextMenu(e, target as HTMLElement);
+      return;
+    }
+    e.preventDefault();
+  });
 }
 
 /** Fill the inspector with the active document's metadata (spec §5.4 ⚠ detail)
@@ -1055,6 +1552,7 @@ function buildTagBlock(path: string): HTMLElement {
 function refreshPanels(): void {
   refreshSidebar();
   updateInspector(tabs.active()?.info.docId ?? null);
+  aiPanel?.setDocKind(isLogDocument(tabs.active()?.info.path ?? null));
   switchCanView();
 }
 
@@ -3429,6 +3927,7 @@ async function mountDoc(info: DocInfo, path: string): Promise<void> {
     parent: tabsEl,
     info,
     ext: extOf(path),
+    path,
     wrap: editorWrapOn,
     onDirty: () => tabs.refreshDirty(info.docId),
     // onDirty fires once per dirty cycle; every edit must re-arm the 2s timer.
@@ -3699,7 +4198,7 @@ function applyMode(docId: number, mode: string): void {
   if (!ds || !handle) return;
   // `mode` comes from the dropdown / caller as a plain string (builtin name or
   // `plugin:<id>`); only AUTO needs resolution against the doc's extension.
-  const resolved = (mode === "auto" ? autoModeId(extOf(ds.path)) : mode) as ModeId | null;
+  const resolved = (mode === "auto" ? autoModeIdForPath(ds.path) : mode) as ModeId | null;
   handle.setMode(resolved === "plain" ? null : resolved); // reconfigure language only
 }
 
@@ -4081,6 +4580,7 @@ async function buildExplainContext(docId: number, st: DocState): Promise<AiConte
       to,
       totalLines: view.state.doc.lines,
       lines,
+      isLog: isLogDocument(st.path),
     });
   }
 
@@ -4106,6 +4606,7 @@ async function buildExplainContext(docId: number, st: DocState): Promise<AiConte
     to: sel.to + 1,
     totalLines: st.totalLines,
     lines,
+    isLog: isLogDocument(st.path),
   });
 }
 
@@ -4235,6 +4736,10 @@ async function runAiScenario(kind: AiScenario, note?: string): Promise<void> {
   if (!aiConfig?.enabled) {
     // Explicit unavailable state: guidance card + inline reason, never silent.
     aiPanel?.reportBlocked("AI 未启用：请先在 AI 设置中开启并填写接口");
+    return;
+  }
+  if (kind !== "explain" && !isLogDocument(st.path)) {
+    aiPanel?.reportBlocked("当前文件不是日志：该动作仅适用于日志文件");
     return;
   }
   if (aiPanel?.isBusy === true) {
@@ -5168,6 +5673,7 @@ function registerShortcuts(): void {
 
 layout();
 detectChrome();
+installContextMenus();
 registerShortcuts();
 initContextMenu();
 // First-interaction probe (spec P1/P2): the app_ping round-trip is the wired
