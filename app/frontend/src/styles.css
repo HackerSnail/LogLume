@@ -534,14 +534,10 @@ html[data-tauri-platform="mac"] .win-btns {
   text-align: left;
   white-space: nowrap;
 }
-.app-menu .menu-item:hover:not(:disabled),
+.app-menu .menu-item:hover,
 .app-menu .menu-item:focus {
   background: var(--hover);
   outline: none;
-}
-.app-menu .menu-item:disabled {
-  color: var(--muted);
-  opacity: 0.45;
 }
 .app-menu .menu-hint {
   margin-left: auto;
