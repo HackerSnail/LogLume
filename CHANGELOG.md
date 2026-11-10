@@ -2,6 +2,12 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-10 — 补人读版测试用例文档
+
+**Files:** Add `docs/reviews/2026-11-10-real-test-cases.md`（范围与环境、统计、33 条速查表、按模块分组的逐条明细（标签/前置条件/测试数据/步骤/预期结果/实际结果/判定）、未通过与部分验证、疑似缺陷复核、观察项、证据文件、复跑门禁命令；与 `docs/reviews/2026-11-10-real-test-cases.json` 逐条同源，JSON 保留作 `case-gate.js` 的机器可读输入）；Modify `CHANGELOG.md`（本条目）。
+**Why:** 上一条只把 JSON 用例表入库，用户指出「测试用例不用 md 文档写我在怎么看」——JSON 适合作门禁输入，但人工阅读与评审不便；仓库里 `docs/reviews/2026-11-09-test-cases.md` 本来就是人读的 Markdown 报告，本次对齐这个习惯。md 只做排版与索引，实际结果、数字、结论全部原样保留，不新增推测。
+**验证:** 逐条脚本比对：33 个明细标题、33 行速查表齐全，`actual`/`expected`/`precondition`/`data`/`steps` 五类字段在 md 中缺失均为 0；明细区 31 条通过、2 条部分验证（`TC-029`/`TC-030`）、0 条不通过，与汇总一致；`git diff --check` 无问题；`case-gate.js --file docs/reviews/2026-11-10-real-test-cases.json --md` 退出码 0、100/100 仍通过。纯文档改动，未改应用代码。
+
 ## 2026-11-10 — 真实执行测试用例表入库
 
 **Files:** Add `docs/reviews/2026-11-10-real-test-cases.json`（`TC-001`～`TC-033` 共 33 条用例，与本轮实际执行产出的 `cases.json` 逐字节一致；`id/module/title/precondition/steps/data/expected/actual/priority/type/method` 11 个字段齐全，33 条 `actual` 全部为实测输出、0 条留空；模块分布 core CLI 11、CAN CLI 11、macOS 原生菜单 3、前端 UI 2、桌面运行环境 2，性能/兼容性/非功能/自动化测试套件各 1；优先级 P0 3 / P1 19 / P2 10 / P3 1）；Modify `CHANGELOG.md`（本条目）。
