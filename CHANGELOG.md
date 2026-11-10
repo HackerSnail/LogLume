@@ -2,6 +2,12 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-10 — 重写 README，对齐 NoteLume 的章节与语气
+
+**Files:** Modify `README.md`（按 https://gitee.com/hackerSnail/note-lume 的 README 结构重写：居中标题与一句话定位、简介对比 VS Code / Notepad++ / Sublime / Notepad--、功能亮点、快速开始（平台产物表、从源码运行命令、构建与测试）、快捷键表、技术栈、目录结构、配置、贡献指南、许可证；只写文字，不放图片、徽章、视频和 English 段落；仓库链接与 clone 地址统一为 `https://github.com/HackerSnail/LogLume`，目录名同步 `cd LogLume`；「适合谁用」把嵌入式 / HIL 工程师与普通开发者并列，去掉主次措辞）；Modify `CHANGELOG.md`（本条目）。
+**Why:** 原 README 是能力清单加构建说明，没有产品定位和上手路径；用户要求参照 NoteLume 的 README 重写，并明确现在只要文字、链接用 GitHub、两类用户同等重要。
+**验证:** 纯文档改动，未跑测试。`Select-String` 检查 README 中 `![` / `<img` / badge / 图片后缀 0 处；`Test-Path` 核对 `docs/features.md`、`docs/test-checklist.md`、`docs/claude.md`、`app/src-tauri/tauri.conf.json`、`app/frontend/src/keymap.ts` 均存在；默认快捷键 6 个与 `keymap.ts` 的 `DEFAULT_BINDINGS` 一致；`git diff --stat -- README.md` 为 +82 / -63。
+
 ## 2026-11-10 — 修复 macOS 符号链接路径下的 Git 状态探测
 
 **Files:** Modify `app/src-tauri/src/gitinfo.rs`（新增 `repo_relative_path()`：把 `repo.workdir()` 与传入文件路径都 `canonicalize()` 后再 `strip_prefix`；`probe_repo` 的文件状态、`last_commit_for` 的树路径查找、`git_stage_and_commit` 的 `index.add_path` 三处统一改用它；新增 `#[cfg(unix)] probe_handles_symlinked_workdir_path` 回归测试：通过符号链接打开仓库仍能识别未跟踪文件）；Modify `CHANGELOG.md`（本条目）。
