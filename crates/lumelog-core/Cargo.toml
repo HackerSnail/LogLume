@@ -27,3 +27,7 @@ harness = false
 [[bench]]
 name = "chunk_at"
 harness = false
+
+[[bench]]
+name = "ocr_grid"
+harness = false

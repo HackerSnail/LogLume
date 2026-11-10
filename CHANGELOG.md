@@ -2,6 +2,13 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-10 — 调研图片转文字（本地 OCR）并验证列还原
+
+**Files:** Add `crates/lumelog-core/src/ocr.rs`（词框 → 行列网格 → 取列：按纵向重叠分行，按"绝对宽度 ≥6px 且 ≥1.5 倍中位词宽且跨行重复"的列缝切列，格内多词空格连接；`Grid` 提供 `column_count`/`column_values`/`column_text`/`to_tsv`/`to_aligned_text`；含 6 个单测）；Add `crates/lumelog-core/benches/ocr_grid.rs`（400 行 × 8 列表格重建基准）；Modify `crates/lumelog-core/src/lib.rs`（挂 `pub mod ocr`）；Modify `crates/lumelog-core/Cargo.toml`（注册 bench 目标）；Add `docs/specs/2026-11-10-image-ocr-column-design.md`（调研：引擎候选对比、体积约束、门槛建议、风险、分期路线）；Modify `docs/features.md`（待做里加「图片转文字（本地 OCR，列还原 + 选列提取）」）；Modify `CHANGELOG.md`（本条目）。
+**Why:** 用户要在截图转文字后保持列不变并能挑出某一列的数据，且不调用大模型。调研结论：OCR 是传统检测+识别模型，本地离线可跑；Windows.Media.Ocr 与 macOS Vision 是系统自带（+0MB 体积），Linux 需 PP-OCR ONNX（模型按需下载），三者输出可统一成"词+像素框"。真正的工作量在列还原，故先把引擎无关的那部分做成核心模块并验证，避免选型反复。
+**验证:** `cargo test -p lumelog-core --lib ocr::` 6 passed / 0 failed（表格保列、格内多词合并、日志行等宽词距不误判为列、列只在部分行出现、TSV/对齐文本输出、越界列返回空）；`cargo bench -p lumelog-core --bench ocr_grid` → `ocr_grid_from_words_400x8 time: [1.0208 ms 1.0378 ms 1.0569 ms]`（9600 词框重建 1.04ms，相对 OCR 秒级可忽略）；`cargo test --workspace` 全绿。
+**未验证:** 各引擎在真实中文表格截图上的识别率与耗时、Linux ONNX 后端、体积随模型分发的取舍——调研文档里列为待拍板项。
+
 ## 2026-11-10 — 多光标进宏录制，状态栏显示光标数
 
 **Files:** Modify `app/frontend/src/editortools.ts`（宏操作新增 `cursors`（光标集，行/列坐标）与 `multi-edit`（各光标互不相同的相对编辑）两类，`isMacroOp` 校验它们的形状）；Modify `app/frontend/src/editor.ts`（录制侧：`captureCursors` 记多光标光标集（纯单光标点击仍不记），多光标编辑事务按光标折叠成单光标操作或 `multi-edit`；重放侧：`insert`/`delete`/`del-word`/`move` 改为作用到所有光标，新增 `applyCursors`/`applyMultiEdit`，`applyMove` 的行首/行尾按每个光标计算；`startRecording` 起始即为多光标时先记一条光标集；新增 `onCursors` 回调上报光标数）；Modify `app/frontend/src/statusbar.ts`（`setPos` 增加 `cursors` 参数，多光标时显示「N 个光标」）；Modify `app/frontend/src/main.ts`（接线 `onCursors` → `updatePos`，状态栏带出光标数）；Modify `app/frontend/src/editor.test.ts`（新增 4 例：多光标打字录制→重放、多光标 Backspace 重放、各光标不同的编辑落成 `multi-edit`、回到单光标也记一条）；Modify `app/frontend/src/editortools.test.ts`（新操作类型往返 + 坏数据丢弃）；Modify `app/frontend/src/statusbar.test.ts`（光标计数显示）；Modify `docs/features.md`（Plan 47 条目，Plan 32 里"宏录制不记多光标"改为不记单光标点击）；Add `docs/specs/2026-11-10-multi-cursor-macro-design.md`；Modify `CHANGELOG.md`（本条目）。

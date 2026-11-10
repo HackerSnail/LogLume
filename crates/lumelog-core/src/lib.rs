@@ -8,6 +8,7 @@ pub mod fif;
 pub mod error;
 pub mod export;
 pub mod filter;
+pub mod ocr;
 pub mod search;
 
 // Deterministic log generator, shared by unit tests, integration tests and
