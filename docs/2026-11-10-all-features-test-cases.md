@@ -185,7 +185,7 @@
 | EDT-10 | 通过 | Vitest 全量 304 passed / 0 failed；theme.test.ts 4/4 passed |
 | EDT-11 | 通过 | Vitest 全量 304 passed / 0 failed；listview.test.ts 13/13、shell.test.ts 6/6 passed |
 | EDT-12 | 通过 | Vitest 全量 304 passed / 0 failed；language.test.ts 12/12 passed |
-| EDT-13 | 不通过 | Ctrl+G 打开 #jump-panel，0 提示「请输入有效行号（≥1）」，2 跳到第 2 行；9999 无提示且面板关闭；两次 CDP 真实 Alt+拖拽（含 Alt keyDown）只得到普通选区（cmSelections=1、cm-selectionRect=0），矩形选择未复现，需人工确认 |
+| EDT-13 | 通过 | CDP 真实 Alt+拖拽（鼠标事件 modifiers 带 Alt 位）：选区 3 个按行 range（7..20 / 41..54 / 75..88），drawSelection 画 3 个选区；矩形选区上 insertText 的 XY 同时替换 3 行同列文本。修前只得到普通选区，根因见第 8 节 |
 | EDT-14 | 通过 | 编辑器插入 MINE EDIT 后外部改写文件，出现 .ext-bar「文件已被外部修改：single_instance.log」；Ctrl+S 弹 .modal-3way「文件已被外部修改」，msg 含「磁盘现为 61 字节」，三按钮「重新加载 / 强制覆盖 / 取消」；点取消后对话框消失，文件内容仍是外部版本 |
 | VIEW-01 | 通过 | 三条精确用例均 rc=0、1 passed；全量 182 passed / 0 failed |
 | VIEW-02 | 通过 | 三条精确用例均 rc=0、1 passed；`viewers::tests::exports_match_table_and_escape` 也在全量中通过 |
@@ -298,7 +298,7 @@
 | EDT-10 | 编辑器与界面 | Vitest 可用 | Vitest · Node 22.14 | `resolveTheme(light/dark/vampire/auto, systemDark=true/false)`、`nextPref` 四步循环 | 1. 在 <F> 执行 `npx vitest run --reporter=json --outputFile=<T>\vitest.json`<br>2. 查 `theme.test.ts &#124; walks light → dark → vampire → auto → light` 与 `auto follows the system dark flag` 的 status | 主题四态与跟随系统 | 两条 status=passed；显式主题不受系统影响，auto 跟随系统 | P2 | 通过 | Vitest 全量 304 passed / 0 failed；theme.test.ts 4/4 passed |
 | EDT-11 | 编辑器与界面 | Vitest 可用 | Vitest · Node 22.14 | `totalLines=0`、滚动到顶/中/底、`first>last` 检查；`isComposing`/`keyCode=229` | 1. 在 <F> 执行 `npx vitest run --reporter=json --outputFile=<T>\vitest.json`<br>2. 查 `listview.test.ts &#124; never inverts: first <= last`、`empty document yields an empty window` 的 status<br>3. 查 `shell.test.ts &#124; flags isComposing and keyCode 229 separately` 的 status | 只读列表窗口越界与 IME Enter 守卫（边界） | 三条 status=passed；空文档窗口为空、窗口不倒置、IME 事件被识别 | P2 | 通过 | Vitest 全量 304 passed / 0 failed；listview.test.ts 13/13、shell.test.ts 6/6 passed |
 | EDT-12 | 编辑器与界面 | Vitest 可用 | Vitest · Node 22.14 | 70+ 模式 id、未知扩展名、AUTO、插件模式 `plugin:<id>`、坏正则规则 | 1. 在 <F> 执行 `npx vitest run --reporter=json --outputFile=<T>\vitest.json`<br>2. 查 `language.test.ts &#124; resolves every selectable mode (registry drift guard)` 与 `drops rules whose regex does not compile` 的 status | 语法注册表与插件模式优先级 | 两条 status=passed；未知扩展回落纯文本，内置模式优先于插件，坏规则跳过 | P2 | 通过 | Vitest 全量 304 passed / 0 failed；language.test.ts 12/12 passed |
-| EDT-13 | 编辑器与界面 | 需交互桌面 | GUI · Tauri WebView2 | <T>\utf8.log；Ctrl+G 输入 1、0、9999；Alt+拖拽矩形选择 | 1. 启动 LumeLog GUI 并打开 utf8.log<br>2. 按 Ctrl+G 依次输入 1、0、9999<br>3. 按 Alt+拖拽做矩形选择 | 转到行号边界与矩形选择（GUI 交互） | Ctrl+G 打开「跳转到行号」；0 给出「请输入有效行号（≥1）」；大于 1 的行号由编辑器处理；合法行号跳到对应行；Alt+拖拽产生矩形选区 | P1 | 不通过 | Ctrl+G 打开 #jump-panel，0 提示「请输入有效行号（≥1）」，2 跳到第 2 行；9999 无提示且面板关闭；两次 CDP 真实 Alt+拖拽（含 Alt keyDown）只得到普通选区（cmSelections=1、cm-selectionRect=0），矩形选择未复现，需人工确认 |
+| EDT-13 | 编辑器与界面 | 需交互桌面 | GUI · Tauri WebView2 | <T>\utf8.log；Ctrl+G 输入 1、0、9999；Alt+拖拽矩形选择 | 1. 启动 LumeLog GUI 并打开 utf8.log<br>2. 按 Ctrl+G 依次输入 1、0、9999<br>3. 按 Alt+拖拽做矩形选择 | 转到行号边界与矩形选择（GUI 交互） | Ctrl+G 打开「跳转到行号」；0 给出「请输入有效行号（≥1）」；大于 1 的行号由编辑器处理；合法行号跳到对应行；Alt+拖拽产生矩形选区 | P1 | 通过 | CDP 真实 Alt+拖拽（鼠标事件 modifiers 带 Alt 位）：选区 3 个按行 range（7..20 / 41..54 / 75..88），drawSelection 画 3 个选区；矩形选区上 insertText 的 XY 同时替换 3 行同列文本。修前只得到普通选区，根因见第 8 节 |
 | EDT-14 | 编辑器与界面 | 需交互桌面；文件可被外部修改 | GUI · Tauri WebView2 | <T>\save_lf.log，编辑器内改为 `mine\n`，外部同时写入 `external\n` | 1. 启动 GUI 并打开 save_lf.log<br>2. 在编辑器内修改文本<br>3. 用另一进程写入同一文件<br>4. 按 Ctrl+S 观察对话框三选 | 外部修改监听与保存冲突三选（异常/状态） | 脏文档显示黄点提示；保存弹「重新加载 / 强制覆盖 / 取消」，三选行为正确 | P1 | 通过 | 编辑器插入 MINE EDIT 后外部改写文件，出现 .ext-bar「文件已被外部修改：single_instance.log」；Ctrl+S 弹 .modal-3way「文件已被外部修改」，msg 含「磁盘现为 61 字节」，三按钮「重新加载 / 强制覆盖 / 取消」；点取消后对话框消失，文件内容仍是外部版本 |
 | VIEW-01 | 文档查看器 | Rust 测试可执行 | cargo test -p lumelog-app | xlsx（sheet/窗口/CSV 导出）、docx（跨 run 段落）、pptx（slide1/slide2/slide10） | 1. 在 e:\LogLume 执行 `cargo test -p lumelog-app viewers::tests::xlsx_open_rows_and_formatting -- --exact`<br>2. 执行 `docx_paragraphs_across_runs`、`pptx_slides_in_numeric_order` 两条精确用例 | Office 三种格式打开与导出主流程 | 三条 rc=0 各 1 passed；pptx 按幻灯片数值排序，docx 段落跨 run 合并 | P1 | 通过 | 三条精确用例均 rc=0、1 passed；全量 182 passed / 0 failed |
 | VIEW-02 | 文档查看器 | Rust 测试可执行 | cargo test -p lumelog-app | `.ppt` / `.txt` 等非支持扩展名；同时打开 5 个会话；无 slide 的 pptx；损坏 PDF | 1. 在 e:\LogLume 执行 `cargo test -p lumelog-app viewers::tests::unsupported_extension_and_session_cap -- --exact`<br>2. 执行 `pptx_without_slides_is_rejected`、`pdf_text_extraction_and_malformed_input` 两条精确用例 | 不支持格式、会话上限 4、空内容与损坏文件（异常/边界） | 三条 rc=0 各 1 passed；不支持格式返回 viewer_unsupported，第 5 个会话被拒，空 pptx/坏 PDF 明确报错 | P1 | 通过 | 三条精确用例均 rc=0、1 passed；`viewers::tests::exports_match_table_and_escape` 也在全量中通过 |
@@ -347,21 +347,19 @@
 
 ## 4. 未通过用例清单
 
-| 编号 | 模块 | 用例要点 | 实际结果 | 严重程度 | 疑似原因 |
-|---|---|---|---|---|---|
-| EDT-13 | 编辑器与界面 | 转到行号边界与矩形选择（GUI 交互） | Ctrl+G 打开 #jump-panel，0 提示「请输入有效行号（≥1）」，2 跳到第 2 行；9999 无提示且面板关闭；两次 CDP 真实 Alt+拖拽（含 Alt keyDown）只得到普通选区（cmSelections=1、cm-selectionRect=0），矩形选择未复现，需人工确认 | 低 |  |
+没有未通过用例。EDT-13 最初判不通过（Alt+拖拽只有普通选区），第 8 节定位出 `allowMultipleSelections` 缺失并修复后复测通过。
 
 ## 5. 统计
 
 ```
 total=108
-result={'通过': 107, '不通过': 1}
+result={'通过': 108, '不通过': 0}
 level={'P0': 12, 'P1': 68, 'P2': 28}
 type={'正常': 36, '边界': 32, '异常': 23, '权限': 6, '网络异常': 5, '特殊字符': 3, '空值': 1, '性能': 1, '超长': 1}
 negative_or_boundary=71 ratio=65.74%
 modules=9
 bad_steps=[] count=0
-failed_ids=['EDT-13']
+failed_ids=[]
 untested_ids=[]
 ```
 
@@ -390,22 +388,23 @@ untested_ids=[]
 
 样本：手工构造 224B BLF（LOGG 头 + LOG_CONTAINER + 1 帧 CAN_MESSAGE）、610B 单页 PDF（照 `viewers.rs` 的 write_pdf 拼）、系统里的 6 页标准 PDF（268KB）、临时 git 仓库（远端指向 127.0.0.1:9）、242,808,915B 日志。都放在临时目录，没写进仓库。
 
-补测当时：9 条中通过 5（CAN-14、EDT-14、AI-08、AI-09、SYS-04）、不通过 4（EDT-13、VIEW-08、GIT-05、SYS-05）、未测试 0。随后修了其中 3 条，见第 8 节；第 2、3 节的表和第 4 节清单是修复后的最终状态。
+补测当时：9 条中通过 5（CAN-14、EDT-14、AI-08、AI-09、SYS-04）、不通过 4（EDT-13、VIEW-08、GIT-05、SYS-05）、未测试 0。4 条都以真实窗口复现并修复，见第 8 节；第 2、3 节的表和第 4 节清单是修复后的最终状态。
 
-两点限制：EDT-13 的 Alt+拖拽矩形选择在 CDP 合成输入下只产生普通选区，需人工确认，不能据此判定产品不支持；VIEW-08 与 SYS-05 的判定基于 debug 构建 + Vite dev server，release 包未验证。
+一点限制：VIEW-08 与 SYS-05 的判定基于 debug 构建 + Vite dev server，release 包未验证。
 
 收尾：点「全部丢弃」清掉 EDT-14 产生的崩溃恢复影子文件，关闭 GUI 窗口与 Vite dev server。AI 配置沿用窗口原有的不可达测试地址，未改动。
 
-## 8. 再次修复（补测发现的 3 个缺陷）
+## 8. 再次修复（补测发现的 4 个缺陷）
 
 - `app/frontend/src/ipc.ts`：`doc_chunk` 的 Channel 回调走独立通道，实测 invoke 2ms resolve、消息 3ms 才到。`loadWindow`、`loadAllText`、`docSetEncoding` 原先 `await` 后立刻读回调写入的变量，拿到 undefined，只读列表因此只有行号没有文本。新增 `oneShotChannel()` 等消息落地，2s 兜底防挂。
 - `app/frontend/src/pdfview.ts`：`renderTextLayer` 把 `getTextContent()` 拆成 `{items, styles:{}, lang:null}` 交给 pdf.js `TextLayer`；`#appendText` 查 `styles[fontName]` 时抛 TypeError，被 `catch {}` 吞掉，文本层一个 span 都没有。改为传完整 `TextContent`，异常交给 `onError`。`render()` 的页面类型同步改成 `Promise<TextContent>`，删掉不再用的 `TextItem` 导入。
 - `app/src-tauri/src/gitinfo.rs`：`map_remote_err` 只匹配 could not resolve host / failed to connect 等英文关键词，中文 Windows 的 libgit2 报「无法与服务器建立连接」时落到 `[git]`。拆出 `is_network_failure()`，加 `ErrorClass::Net` 与中文关键词，补单测 `remote_error_classifies_network_messages`。
+- `app/frontend/src/editor.ts`：`rectangularSelection()` 已启用，但 `EditorState.allowMultipleSelections` 没开。state 更新路径对未启用多选的事务把新选区 `asSingle()` 塌掉，Alt+拖拽产生的按行多 range 一进状态就只剩 main 那一条。补 `EditorState.allowMultipleSelections.of(true)`。
 
 验证：`npx tsc --noEmit` exit 0；`npx vitest run` 304 passed / 39 suites；`cargo test -p lumelog-app` 183 passed（含新增单测）；`cargo build -p lumelog-app` 4.98s。修复后重启窗口用 CDP 复测：242MB 日志 `.list-text` 前 6 行显示真实日志；6 页标准 PDF 文本层 children=141 / spans=105；`git_fetch` 对 127.0.0.1:9 返回 `code:"network"`。
 
-EDT-13 没有改代码：`editor.ts:687` 已启用 `rectangularSelection()`，两次 CDP 合成 Alt+拖拽都只产生普通选区，没有可复现的产品缺陷，改代码没有依据。这条仍是不通过，需要人工在真实桌面用 Alt+拖拽确认。
+EDT-13 复测（重启窗口、CDP 真实 Alt+拖拽，鼠标事件 modifiers 带 Alt 位）：选区 3 个按行 range（line1 7..20、line2 41..54、line3 75..88）、drawSelection 画 3 个选区；矩形选区上 `Input.insertText` 的 XY 同时替换行 2–4 同列文本，Ctrl+Z 撤销后文档与磁盘一致。修前两次拖拽只得到普通选区，是状态塌缩所致，不是产品不支持。
 
-截图里的白色遮挡不是产品 bug：补测脚本 `t_view08_textlayer.js` 初版因 `import('pdfjs-dist')` 裸模块名解析失败抛异常，后面的 `host.remove()` 没执行，`position:fixed; z-index:99999; background:#fff` 的测试宿主 div 一直盖在窗口上，把右侧检查器和 AI 面板压得只剩一截。重启窗口后就没有了。
+截图里的白色遮挡不是产品 bug：补测脚本 `t_view08_textlayer.js` 初版因 `import('pdfjs-dist')` 裸模块名解析失败抛异常，后面的 `host.remove()` 没执行，`position:fixed; z-index:99999; background:#fff` 的测试宿主 div 一直盖在窗口上，把右侧检查器和 AI 面板压得只剩一截。重启窗口后就没有了。VIEW-08 的两个脚本（`t_view08_textlayer.js`、`t_view08_std.js`）随后改成 try/finally 结构：宿主创建后任何一步抛异常，finally 里销毁 view、移除宿主并关闭 viewer，复测失败路径（脚本内主动抛异常）宿主也一定被移除。
 
 CHANGELOG.md 按 `docs/claude.md` 补了两条条目：CLI 参数校验 4 处、本次 3 处。本轮结束同样关闭窗口与 dev server。

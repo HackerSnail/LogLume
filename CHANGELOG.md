@@ -2,6 +2,12 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-10 — 开启编辑器多选支持，矩形选择可用
+
+**Files:** Modify `app/frontend/src/editor.ts`（`buildState` 的扩展列表在 `rectangularSelection()` 后补 `EditorState.allowMultipleSelections.of(true)`）；Modify `docs/2026-11-10-all-features-test-cases.md`（EDT-13 改为通过，第 4/5/7/8 节同步更新）；Modify `CHANGELOG.md`（本条目）。
+**Why:** EDT-13 最初判不通过：Alt+拖拽只得到普通选区。复盘定位到根因——`rectangularSelection()` 的矩形选区是每行一个 range 的多 range 选区，而 CM 的 state 更新对未启用 `allowMultipleSelections` 的事务把新选区做 `asSingle()` 塌缩，矩形选区一进状态就只剩一行那条，表现永远和普通拖拽一样。
+**验证:** 真实窗口 CDP Alt+拖拽（鼠标事件 modifiers 带 Alt 位）：选区 3 个按行 range（line1 7..20 / line2 41..54 / line3 75..88）、drawSelection 画 3 个选区；矩形选区上 `Input.insertText` 的 XY 同时替换行 2–4 同列文本，Ctrl+Z 撤销后文档恢复、tab 无脏标。`npx tsc --noEmit` exit 0；`npx vitest run` 304 passed / 39 suites；`cargo test -p lumelog-app` 183 passed；`cargo clippy --workspace --all-targets -- -D warnings` 无警告。
+
 ## 2026-11-10 — 清掉 workspace clippy 存量告警
 
 **Files:** Modify `app/src-tauri/src/menu.rs`（`AboutMetadata`、`SubmenuBuilder` 按目标平台拆 import，仅供 macOS `build()` 用；`mi()` 加 `#[cfg_attr(not(target_os = "macos"), allow(dead_code))]`）；Modify `app/src-tauri/src/lib.rs`（`.menu(|app| menu::build(app))` 直接传 `menu::build`；`setup` 闭包在非 macOS 分支 `let _ = app;`）；Modify `app/src-tauri/src/ai.rs`（`error_text` 里 `.and_then(|m| error_text_opt(m))` 两处换成函数引用）；Modify `app/src-tauri/src/gitinfo.rs`（`assert_eq!(git_merge_state(&work).unwrap(), false)` 改 `assert!(!…)`）；Modify `crates/lumelog-can/src/source/mod.rs`（`pub use` 从测试模块后面移到 `hex_to_bytes` 之后）；Modify `CHANGELOG.md`（本条目）。

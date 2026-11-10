@@ -685,6 +685,9 @@ function buildState(
       indentOnInput(),
       bracketMatching(),
       rectangularSelection(),
+      // rectangularSelection one range per line is required when producing the block selection,
+      // otherwise the multi range selection will be collapsed to main by the state update.
+      EditorState.allowMultipleSelections.of(true),
       crosshairCursor(),
       wrapConf.of(wrap ? EditorView.lineWrapping : []),
       highlightSelectionMatches(),
