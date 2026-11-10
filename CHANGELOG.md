@@ -2,6 +2,13 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-10 — 真实黑盒回归（macOS）：143 条用例逐条实测，暴露 5 处问题
+
+**Files:** Add `TEST-REPORT-log-lume-2026-11-10.md`（143 条用例表，分 DOC/SRC/CAN/CORE/APP/FE/SYS/GUI 八组，逐条填真实「测试结果 / 实际结果」；含未通过用例清单、观察项与复现命令；未执行项写明未测原因）；Delete `docs/reviews/2026-11-10-blackbox-test-cases.md`、`docs/reviews/2026-11-10-blackbox-test-report.md`（旧黑盒用例集与报告由本次实测报告取代）；Add `docs/reviews/.notelume-backup/2026-11-10/2026-11-10-real-test-cases-20-11-04.md`（上一轮 macOS 实测用例表备份）；Modify `CHANGELOG.md`（本条目）。
+**Why:** 需要一份「对当前源码、可复现、结果真实」的回归基线：CLI 黑盒 99 次命令逐条实跑、Rust 精确用例逐条 `--exact` 执行、前端 42 条逐条 `vitest -t` 加全量 39 文件 314 用例，并用 test-mentor 门禁复核用例结构与覆盖（92/100、风险低、负例+边界 73%）。本次同时暴露 UTF-16 识别与只读文件保存两处真实缺陷，需要留档供后续修复。
+**验证:** `cargo test -p lumelog-core -p lumelog-can`（core 123、can 25，0 failed）；`cargo test -p lumelog-app`（184 passed / 0 failed）；`npx tsc --noEmit` exit 0；`npx vitest run` → 39 files / 314 tests 全绿；`npm run build`（tsc + vite build）✓ built in 5.12s；CLI 黑盒 99 次命令实跑（`lumelog` / `lumelog-can`，夹具在 /tmp/loglume-tc-20261110，未写入仓库）；`case-gate.js --file cases.json --md` → 92/100 通过、风险低；`defect-kb.js match` → 命中 DP-14「时区与编码问题」。
+**未验证:** GUI 交互 6 条（GBK 状态栏往返、>200MiB 只读虚拟列表、Ctrl+G 与矩形选择、保存冲突三选、PDF/BLF/MF4 真实渲染、单实例与文件关联）——本机无可交互桌面会话且仓库内无真实样本；另记录 5 处问题本次未修复：DOC-06/07 无 BOM 的 UTF-16 被判成 ISO-8859-1/GBK 乱码、DOC-08 手动切 UTF-16 后行尾出现 U+FFFD（`set_encoding` 未重建对齐索引）、DOC-37 只读文件保存被 temp+rename 绕过（只读特判仅 Windows 存在）、DOC-48 `lumelog` 无 `--help`、CAN-17 `--out jsonl` 时 `--limit` 被忽略。
+
 ## 2026-11-10 — 调研图片转文字（本地 OCR）并验证列还原
 
 **Files:** Add `crates/lumelog-core/src/ocr.rs`（词框 → 行列网格 → 取列：按纵向重叠分行，按"绝对宽度 ≥6px 且 ≥1.5 倍中位词宽且跨行重复"的列缝切列，格内多词空格连接；`Grid` 提供 `column_count`/`column_values`/`column_text`/`to_tsv`/`to_aligned_text`；含 6 个单测）；Add `crates/lumelog-core/benches/ocr_grid.rs`（400 行 × 8 列表格重建基准）；Modify `crates/lumelog-core/src/lib.rs`（挂 `pub mod ocr`）；Modify `crates/lumelog-core/Cargo.toml`（注册 bench 目标）；Add `docs/specs/2026-11-10-image-ocr-column-design.md`（调研：引擎候选对比、体积约束、门槛建议、风险、分期路线）；Modify `docs/features.md`（待做里加「图片转文字（本地 OCR，列还原 + 选列提取）」）；Modify `CHANGELOG.md`（本条目）。
