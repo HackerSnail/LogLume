@@ -2,6 +2,12 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-10 — 给列选择/多光标补回归测试与文档
+
+**Files:** Modify `app/frontend/src/editor.test.ts`（新增 3 例：`EditorState.allowMultipleSelections` 已开、多 range 选区经 state 更新后仍保留 2 个 range、矩形选区样式已注册进 `EditorView.mouseSelectionStyle`）；Modify `docs/features.md`（写清 Alt+左键拖拽出矩形选区、Ctrl+左键点击追加光标，两者都依赖 `allowMultipleSelections`；宏那句改成"宏录制不记多光标，编辑器本身的多光标编辑不受影响"）；Modify `CHANGELOG.md`（本条目）。
+**Why:** 上一条把 `allowMultipleSelections` 打开后没有测试兜底，再被关掉不会有任何用例变红。jsdom 没有布局，鼠标坐标级的交互测不了，改为锁住两个配置事实。去掉那行时前两例会变红，其中"多 range 选区保留"报 `expected 1 to be 2`，正是多 range 被塌缩成 main 的现象。
+**验证:** `npx tsc --noEmit` exit 0；`npx vitest run` 307 passed / 39 suites（editor.test.ts 16 例）；`cargo test -p lumelog-app` 183 passed。真实窗口 CDP 复测：Ctrl+左键点击两次得到 3 个光标（0 / 7 / 83），`Input.insertText` 的 ZZ 同时替换两处，Ctrl+Z 一次撤销复原；释放 Ctrl 后 Alt+左键拖拽得到 2 行矩形选区（7..16 / 41..50）并替换旧选区。
+
 ## 2026-11-10 — 开启编辑器多选支持，矩形选择可用
 
 **Files:** Modify `app/frontend/src/editor.ts`（`buildState` 的扩展列表在 `rectangularSelection()` 后补 `EditorState.allowMultipleSelections.of(true)`）；Modify `docs/2026-11-10-all-features-test-cases.md`（EDT-13 改为通过，第 4/5/7/8 节同步更新）；Modify `CHANGELOG.md`（本条目）。

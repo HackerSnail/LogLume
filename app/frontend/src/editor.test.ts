@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { language } from "@codemirror/language";
+import { EditorSelection, EditorState } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
 import type { DocInfo } from "./ipc";
 
 vi.mock("./ipc", () => ({
@@ -282,5 +284,36 @@ describe("EditorHandle.setMode", () => {
     handle.destroy();
     await flush();
     expect(handle.view.state.facet(language)).toBeNull();
+  });
+});
+
+describe("Editor selection modes", () => {
+  it("allows multiple selections so Ctrl+click cursors survive", async () => {
+    const handle = await mount("txt");
+    expect(handle.view.state.facet(EditorState.allowMultipleSelections)).toBe(true);
+    handle.destroy();
+  });
+
+  it("keeps every range of a multi-cursor selection", async () => {
+    const handle = await mount("txt");
+    // Ctrl+click adds a range via EditorSelection.addRange; without
+    // allowMultipleSelections the state update collapses the selection to its
+    // main range, so the extra cursor disappears.
+    handle.view.dispatch({
+      selection: EditorSelection.create([
+        EditorSelection.cursor(0),
+        EditorSelection.cursor(2),
+      ]),
+    });
+    expect(handle.view.state.selection.ranges.length).toBe(2);
+    handle.destroy();
+  });
+
+  it("registers the Alt+drag rectangular selection style", async () => {
+    const handle = await mount("txt");
+    // rectangularSelection() registers a mouse selection style that claims
+    // Alt+left-button drags.
+    expect(handle.view.state.facet(EditorView.mouseSelectionStyle).length).toBeGreaterThan(0);
+    handle.destroy();
   });
 });
