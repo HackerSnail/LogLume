@@ -301,6 +301,48 @@ const status = new Statusbar(statusEl, {
   onFollow: (on) => setFollow(on),
 });
 
+// Status bar: right-click copies the current document's shell-visible state.
+// <select> keeps its native menu (the dropdown itself is the control).
+statusEl.addEventListener("contextmenu", (e) => {
+  const target = e.target as Element | null;
+  if (target?.closest("select, input")) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const a = tabs.active();
+  const ds = a ? docStates.get(a.info.docId) : undefined;
+  const valueOf = (cls: string): string =>
+    (statusEl.querySelector(`select.${cls}`) as HTMLSelectElement | null)?.value ?? "";
+  const pos = statusEl.querySelector(".doc-pos")?.textContent ?? "";
+  const summary = [
+    valueOf("encoding") && `编码 ${valueOf("encoding")}`,
+    valueOf("eol") && `行尾 ${valueOf("eol")}`,
+    valueOf("mode") && `语法 ${valueOf("mode")}`,
+    pos,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const rows: CtxRow[] = [
+    {
+      label: "复制文件路径",
+      disabled: !ds,
+      run: () => copyText(ds?.path ?? "", "已复制路径"),
+    },
+    {
+      label: "复制状态摘要",
+      disabled: !summary,
+      run: () => copyText(summary, "已复制状态摘要"),
+    },
+    {
+      label: "复制光标位置",
+      disabled: !pos,
+      run: () => copyText(pos, "已复制光标位置"),
+    },
+    "sep",
+    { label: "全部命令…", hint: "Ctrl+Shift+P", run: () => openPalette() },
+  ];
+  showContextMenu(e.clientX, e.clientY, rows, "状态栏");
+});
+
 function layout(): void {
   const root = document.getElementById("app");
   if (!root) return;
@@ -1051,6 +1093,27 @@ function openListContextMenu(e: MouseEvent, list: ListView, docId: number): void
       disabled: !sel,
       run: copySelected,
     },
+    {
+      label: "复制行号 + 内容",
+      icon: "i-copy",
+      disabled: !sel,
+      run: () => {
+        if (!sel) return;
+        void (async () => {
+          const indices: number[] = [];
+          for (let i = sel.from; i <= sel.to; i++) indices.push(i);
+          const lines = await loadLogLines(docId, indices);
+          if (lines.length === 0) {
+            toastMsg("选中行尚未索引完成");
+            return;
+          }
+          copyText(
+            lines.map((l) => `${l.line}\t${l.text}`).join("\n"),
+            `已复制 ${lines.length} 行`,
+          );
+        })();
+      },
+    },
     "sep",
     {
       label: "AI",
@@ -1142,11 +1205,18 @@ function openTabContextMenu(e: MouseEvent): void {
       run: () => path && copyText(path, "已复制路径"),
     },
     {
+      label: "复制文件名",
+      disabled: !path,
+      run: () => path && copyText(basenameOf(path), "已复制文件名"),
+    },
+    {
       label: "在文件管理器中显示",
       icon: "i-external",
       disabled: !path,
       run: () => revealDocPath(path),
     },
+    "sep",
+    { label: "全部命令…", hint: "Ctrl+Shift+P", run: () => openPalette() },
   ];
   showContextMenu(e.clientX, e.clientY, rows);
 }
@@ -1177,6 +1247,8 @@ function openSideItemContextMenu(e: MouseEvent): void {
       disabled: !path,
       run: () => revealDocPath(path),
     },
+    "sep",
+    { label: "全部命令…", hint: "Ctrl+Shift+P", run: () => openPalette() },
   ];
   showContextMenu(e.clientX, e.clientY, rows);
 }
@@ -3133,10 +3205,24 @@ function openFindInFiles(): void {
     row.className = "fif-hit";
     row.textContent = `${h.path}:${h.line}: ${h.text}`;
     row.title = row.textContent;
-    row.addEventListener("click", () => {
+    const openHit = (): void => {
       void openPath(h.path).then((ok) => {
         if (ok) revealSourceLine(h.line);
       });
+    };
+    row.addEventListener("click", openHit);
+    row.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const rows: CtxRow[] = [
+        { label: "打开并定位", run: openHit },
+        "sep",
+        { label: "复制路径", run: () => copyText(h.path, "已复制路径") },
+        { label: "复制命中行", run: () => copyText(`${h.path}:${h.line}: ${h.text}`, "已复制命中行") },
+        "sep",
+        { label: "全部命令…", hint: "Ctrl+Shift+P", run: () => openPalette() },
+      ];
+      showContextMenu(e.clientX, e.clientY, rows, "搜索命中");
     });
     results.append(row);
   };

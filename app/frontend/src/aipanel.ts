@@ -19,6 +19,7 @@ import {
   type AiStreamEvent,
 } from "./ipc";
 import type { AiContext } from "./aitasks";
+import { showContextMenu, type CtxRow } from "./contextmenu";
 
 /** Log-scenario actions offered by the composer's mode selector. */
 export type AiScenario = "explain" | "errors" | "query";
@@ -154,6 +155,27 @@ export class AiPanel {
     goSettings.addEventListener("click", () => this.deps.openSettings());
     this.emptyEl.append(this.emptyTitle, this.emptyBody, goSettings);
     this.logEl.append(this.emptyEl);
+    // Right-click a message: copy that turn / the whole transcript / save a reply.
+    // The composer textarea keeps its native menu.
+    this.logEl.addEventListener("contextmenu", (e) => {
+      const bubble = (e.target as Element | null)?.closest(".ai-msg") as HTMLElement | null;
+      if (!bubble) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const text = (bubble.querySelector(".ai-text")?.textContent ?? bubble.textContent ?? "").trim();
+      const whole = [...this.logEl.querySelectorAll(".ai-text")]
+        .map((n) => n.textContent ?? "")
+        .filter((t) => t.trim())
+        .join("\n\n");
+      const rows: CtxRow[] = [
+        { label: "复制此条内容", disabled: !text, run: () => this.copy(text, "此条内容") },
+        { label: "复制整段对话", disabled: !whole, run: () => this.copy(whole, "整段对话") },
+      ];
+      if (bubble.classList.contains("ai-msg-assistant") && text) {
+        rows.push("sep", { label: "另存为 .md…", run: () => void this.saveReply(text) });
+      }
+      showContextMenu(e.clientX, e.clientY, rows, "AI 消息");
+    });
 
     const compose = el("div", "ai-compose");
     this.inputEl = el("textarea", "ai-input-box");
@@ -504,6 +526,19 @@ export class AiPanel {
     saveBtn.type = "button";
     saveBtn.addEventListener("click", () => void this.saveReply(raw));
     tools.append(copy, saveBtn);
+  }
+
+  private copy(text: string, what: string): void {
+    void navigator.clipboard.writeText(text).then(
+      () => {
+        this.note = `已复制${what}`;
+        this.syncStatus();
+      },
+      () => {
+        this.note = "复制失败（剪贴板不可用）";
+        this.syncStatus();
+      },
+    );
   }
 
   private async saveReply(raw: string): Promise<void> {

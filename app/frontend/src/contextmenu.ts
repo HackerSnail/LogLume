@@ -203,9 +203,15 @@ function buildMenu(rows: readonly CtxRow[], topLevel: boolean): HTMLElement {
   return menu;
 }
 
-export function showContextMenu(x: number, y: number, rows: readonly CtxRow[]): void {
+export function showContextMenu(
+  x: number,
+  y: number,
+  rows: readonly CtxRow[],
+  label?: string,
+): void {
   closeContextMenu();
   const menu = buildMenu(rows, true);
+  if (label) menu.setAttribute("aria-label", label);
   document.body.append(menu);
   panels = [menu];
 

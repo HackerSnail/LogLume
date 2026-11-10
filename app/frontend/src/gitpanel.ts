@@ -49,6 +49,7 @@ import {
   type GitRemoteStatus,
 } from "./ipc";
 import { promptDialog } from "./promptdialog";
+import { showContextMenu, type CtxRow } from "./contextmenu";
 
 export interface GitPanelHooks {
   toast: (msg: string) => void;
@@ -269,6 +270,14 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
   box.append(empty("读取中…"));
 
   const stale = (): boolean => my !== token || box.dataset.path !== path || !box.isConnected;
+
+  /** Clipboard write for the Git context menus. */
+  function copy(text: string, what: string): void {
+    void navigator.clipboard.writeText(text).then(
+      () => hooks.toast(`已复制${what}`),
+      () => hooks.toast("复制失败（剪贴板不可用）"),
+    );
+  }
 
   void load();
 
@@ -783,13 +792,31 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
       }
     });
     submit.addEventListener("click", () => void commit());
-    abort.addEventListener("click", async () => {
+    const abortMerge = async (): Promise<void> => {
       if (busy) return;
       const go = await ask(
         "中止合并会丢弃本次合并引入的改动，回到合并前的 HEAD。确定中止？",
         { title: "中止合并", kind: "warning", okLabel: "中止合并", cancelLabel: "取消" },
       );
       if (go) void runAction(() => gitMergeAbort(root), "已中止合并");
+    };
+    abort.addEventListener("click", () => void abortMerge());
+    sec.addEventListener("contextmenu", (e) => {
+      if ((e.target as Element | null)?.closest("textarea, input")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const rows: CtxRow[] = [
+        {
+          label: "提交合并",
+          disabled: conflicts > 0 || msg.value.trim() === "",
+          run: () => void commit(),
+        },
+        "sep",
+        { label: "复制合并提示", run: () => copy(title.textContent ?? "", "提示") },
+        "sep",
+        { label: "中止合并", danger: true, run: () => void abortMerge() },
+      ];
+      showContextMenu(e.clientX, e.clientY, rows, "合并");
     });
     row.append(msg, submit, abort);
     sec.append(head, row);
@@ -1127,6 +1154,36 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
         row.addEventListener("click", () =>
           void showDiff(root, c.path, "HEAD", `${label}：${c.path}`),
         );
+        row.addEventListener("contextmenu", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const acts: CtxRow[] = [
+            { label: "查看差异", run: () => void showDiff(root, c.path, "HEAD", `${label}：${c.path}`) },
+          ];
+          if (c.kind === "conflicted") {
+            acts.push(
+              { label: "用本地版本解决", run: () => void resolveConflict(root, c.path, "ours", "本地") },
+              { label: "用远端版本解决", run: () => void resolveConflict(root, c.path, "theirs", "远端") },
+            );
+          } else if (c.staged) {
+            acts.push({
+              label: "取消暂存",
+              run: () => void runAction(() => gitUnstagePath(root, c.path), `已取消暂存：${c.path}`),
+            });
+          } else {
+            acts.push({
+              label: "暂存此文件",
+              run: () => void runAction(() => gitStagePath(root, c.path), `已暂存：${c.path}`),
+            });
+          }
+          acts.push(
+            "sep",
+            { label: "复制路径", run: () => copy(c.path, "路径") },
+            "sep",
+            { label: "丢弃此文件的改动", danger: true, run: () => void discardChange(root, c) },
+          );
+          showContextMenu(e.clientX, e.clientY, acts, "文件改动");
+        });
         list.append(row);
       }
       if (changes.length >= 1000) list.append(emptyInline("改动过多，仅显示前 1000 项"));
@@ -1301,6 +1358,19 @@ export function mountGitPanel(box: HTMLElement, path: string, hooks: GitPanelHoo
           row.append(pill);
         }
         row.addEventListener("click", () => void showCommit(root, c));
+        row.addEventListener("contextmenu", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const rows: CtxRow[] = [
+            { label: "查看提交详情", run: () => void showCommit(root, c) },
+            { label: "复制短哈希", run: () => copy(c.id_short, "短哈希") },
+            { label: "复制提交信息", run: () => copy(`${c.id_short} ${c.summary}`, "提交信息") },
+            "sep",
+            { label: "检出此提交（分离 HEAD）", run: () => void checkoutCommit(root, c) },
+            { label: "还原此提交（生成新提交）", run: () => void revertCommit(root, c) },
+          ];
+          showContextMenu(e.clientX, e.clientY, rows, "提交");
+        });
         list.append(row);
         prevOut = lanesOut;
       }

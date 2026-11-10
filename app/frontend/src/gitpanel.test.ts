@@ -256,6 +256,57 @@ describe("Git panel parity", () => {
     expect(diff.querySelectorAll(".git-commit-file")).toHaveLength(1);
   });
 
+  it("right-click a change row: one shared menu, danger discard still confirms", async () => {
+    probe.mockResolvedValue(repoInfo());
+    status.mockResolvedValue([change("a.log", "modified")]);
+    log.mockResolvedValue([]);
+
+    const { box } = mount();
+    await settle();
+
+    const row = box.querySelector(".git-list .git-item") as HTMLElement;
+    row.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }),
+    );
+    const menu = document.querySelector(".ctx-menu") as HTMLElement;
+    expect(menu.getAttribute("aria-label")).toBe("文件改动");
+    expect([...menu.querySelectorAll(".ctx-menu-item")].map((n) => n.textContent)).toEqual([
+      "查看差异",
+      "暂存此文件",
+      "复制路径",
+      "丢弃此文件的改动",
+    ]);
+    expect(menu.querySelectorAll(".ctx-menu-item.danger")).toHaveLength(1);
+
+    (menu.querySelectorAll(".ctx-menu-item")[3] as HTMLButtonElement).click();
+    await settle();
+    expect(ask).toHaveBeenCalledOnce();
+    expect(discardPath).toHaveBeenCalledWith("/repo/", "a.log", true);
+  });
+
+  it("right-click a commit row: detail / copy / checkout / revert", async () => {
+    probe.mockResolvedValue(repoInfo());
+    status.mockResolvedValue([]);
+    log.mockResolvedValue([commit("abcdef0123456", "first")]);
+
+    const { box } = mount();
+    await settle();
+
+    const row = box.querySelector(".git-graph .git-item") as HTMLElement;
+    row.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }),
+    );
+    const menu = document.querySelector(".ctx-menu") as HTMLElement;
+    expect(menu.getAttribute("aria-label")).toBe("提交");
+    expect([...menu.querySelectorAll(".ctx-menu-item")].map((n) => n.textContent)).toEqual([
+      "查看提交详情",
+      "复制短哈希",
+      "复制提交信息",
+      "检出此提交（分离 HEAD）",
+      "还原此提交（生成新提交）",
+    ]);
+  });
+
   it("renders empty repo/lists and commits the typed message with Ctrl+Enter", async () => {
     probe.mockResolvedValue(repoInfo());
     status.mockResolvedValue([]);

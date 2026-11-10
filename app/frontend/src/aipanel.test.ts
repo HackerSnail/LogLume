@@ -186,6 +186,31 @@ describe("AI panel · single transcript", () => {
     expect(h.cancel).toHaveBeenCalledWith(1);
   });
 
+  it("right-click offers copy for a turn and save-as for a reply", () => {
+    const { panel } = setup();
+    type(panel, "问题");
+    send(panel).click();
+    const req = h.stream.mock.calls[0][0] as { reqId: number };
+    emit({ reqId: req.reqId, kind: "chunk", delta: "回答" } as AiStreamEvent);
+    emit({ reqId: req.reqId, kind: "done" } as AiStreamEvent);
+
+    const open = (selector: string): string[] => {
+      const bubble = panel.root.querySelector(selector) as HTMLElement;
+      bubble.dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
+      );
+      const menu = document.querySelector(".ctx-menu");
+      const labels = [...(menu?.querySelectorAll(".ctx-menu-label") ?? [])].map(
+        (e) => e.textContent ?? "",
+      );
+      menu?.remove();
+      return labels;
+    };
+
+    expect(open(".ai-msg-user")).toEqual(["复制此条内容", "复制整段对话"]);
+    expect(open(".ai-msg-assistant")).toEqual(["复制此条内容", "复制整段对话", "另存为 .md…"]);
+  });
+
   it("collapses without losing the header", () => {
     const { panel } = setup();
     panel.setExpanded(false);
