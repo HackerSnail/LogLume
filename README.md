@@ -4,7 +4,7 @@
 给「嫌 VS Code 太重、嫌 Notepad++ 打不开几 GB 日志」的人做的轻量编辑器。日常改文本该有的操作习惯、宏、语法高亮和 Git 面板都在，超大日志、工控编码、DBC/CAN 报文解析也在原生功能里。文件都在本地，不联网也能用。
 </p>
 
-仓库：[GitHub](https://github.com/HackerSnail/LogLume)。应用标识 `com.lumelog.desktop`，窗口标题 `LogLume`。仓库尚未声明许可证，商用或分发前请留意。
+仓库：[GitHub](https://github.com/HackerSnail/LogLume)。应用标识 `com.lumelog.desktop`，窗口标题 `LogLume`。许可证：Apache-2.0（见 [LICENSE](LICENSE)）。
 
 ## 简介
 
@@ -119,4 +119,4 @@ Issue 和 PR 都欢迎，功能建议也可以直接提。
 
 ## 许可证
 
-仓库尚未声明许可证，使用前请留意。
+[Apache License 2.0](LICENSE)。

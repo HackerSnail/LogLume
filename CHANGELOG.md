@@ -2,6 +2,12 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-10 — README 补上 Apache-2.0 许可证说明
+
+**Files:** Modify `README.md`（顶部仓库行的「仓库尚未声明许可证，商用或分发前请留意」改为「许可证：Apache-2.0（见 [LICENSE](LICENSE)）」；「许可证」章节改为 [Apache License 2.0](LICENSE)）；Modify `CHANGELOG.md`（本条目）。
+**Why:** `b3bd672 add LICENSE.` 加入了 Apache License 2.0 全文（201 行），README 里两处「尚未声明许可证」和仓库现状不符。
+**验证:** 纯文档改动，未跑测试。`Get-Content LICENSE -TotalCount 5` 确认是 Apache License Version 2.0；`Select-String` 检查 README 中「尚未声明许可证」0 处；`git diff --stat -- README.md` 为 +2 / -2。
+
 ## 2026-11-10 — 开发端口改为 1520，避开 NoteLume
 
 **Files:** Modify `app/frontend/vite.config.ts`（`server.port` 1420 → 1520，`strictPort: true` 保留；注释写明与 NoteLume 的 1420 分开）；Modify `app/src-tauri/tauri.conf.json`（`build.devUrl` 同步为 `http://localhost:1520`）；Modify `README.md`（开发服务器地址同步）；Modify `CHANGELOG.md`（本条目）。
