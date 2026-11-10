@@ -8,8 +8,18 @@ use git2::{
 };
 use git2::build::CheckoutBuilder;
 use serde::Serialize;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
+
+/// Repo-relative path for an absolute file. macOS `/var` is a symlink to
+/// `/private/var`, and libgit2 reports the canonical workdir while callers may
+/// pass the symlinked form; normalize both sides before stripping the prefix.
+fn repo_relative_path(repo: &Repository, file: &Path) -> Option<PathBuf> {
+    let norm = |p: PathBuf| p.canonicalize().unwrap_or(p);
+    let workdir = norm(repo.workdir()?.to_path_buf());
+    let target = norm(file.to_path_buf());
+    Some(target.strip_prefix(&workdir).ok()?.to_path_buf())
+}
 
 #[derive(Debug, Serialize)]
 pub struct GitInfo {
@@ -105,10 +115,8 @@ fn probe_repo(repo: &Repository, file: &Path) -> GitInfo {
             .filter(|r| r.symbolic_target().is_none())
             .map(|_| "（分离 HEAD）".to_string()),
     };
-    let file_status = repo
-        .workdir()
-        .and_then(|wd| file.strip_prefix(wd).ok())
-        .and_then(|rel| repo.status_file(rel).ok())
+    let file_status = repo_relative_path(repo, file)
+        .and_then(|rel| repo.status_file(&rel).ok())
         .and_then(status_label);
     let last_commit = last_commit_for(repo, file);
     let identity = repo_config_identity(repo);
@@ -151,17 +159,17 @@ pub fn git_init(dir: &Path) -> Result<(), git2::Error> {
 /// Last commit that touched `file` (absolute path); walks from HEAD comparing
 /// the path's oid against each parent tree. Empty repo → None.
 fn last_commit_for(repo: &Repository, file: &Path) -> Option<LastCommit> {
-    let rel = repo.workdir().and_then(|wd| file.strip_prefix(wd).ok())?;
+    let rel = repo_relative_path(repo, file)?;
     let mut rev = repo.revwalk().ok()?;
     rev.push_head().ok()?;
     let mut previous: Option<git2::Oid> = None;
     for oid in rev.flatten() {
         let commit = repo.find_commit(oid).ok()?;
         let tree = commit.tree().ok()?;
-        let entry = tree.get_path(rel).ok().map(|e| e.id());
+        let entry = tree.get_path(&rel).ok().map(|e| e.id());
         if entry != previous {
             if let (Some(cur), Some(parent)) = (&entry, commit.parent(0).ok()) {
-                let had = parent.tree().ok()?.get_path(rel).ok().map(|e| e.id());
+                let had = parent.tree().ok()?.get_path(&rel).ok().map(|e| e.id());
                 if had == Some(*cur) {
                     previous = entry;
                     continue; // path unchanged in this commit
@@ -214,12 +222,10 @@ pub fn git_stage_and_commit(
     }
     let repo = Repository::discover(file.parent().unwrap_or(file))
         .map_err(|e| format!("未找到 Git 仓库：{e}"))?;
-    let rel = repo
-        .workdir()
-        .and_then(|wd| file.strip_prefix(wd).ok())
+    let rel = repo_relative_path(&repo, file)
         .ok_or_else(|| "文件不在仓库工作区内".to_string())?;
     let mut index = repo.index().map_err(|e| e.to_string())?;
-    index.add_path(rel).map_err(|e| e.to_string())?;
+    index.add_path(&rel).map_err(|e| e.to_string())?;
     index.write().map_err(|e| e.to_string())?;
     let tree_oid = index.write_tree().map_err(|e| e.to_string())?;
     let tree = repo.find_tree(tree_oid).map_err(|e| e.to_string())?;
@@ -1786,6 +1792,24 @@ mod tests {
         let lc = info.last_commit.unwrap();
         assert_eq!(lc.subject, "首提交");
         assert_eq!(lc.hash, hash);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn probe_handles_symlinked_workdir_path() {
+        use std::os::unix::fs::symlink;
+        let tmp = tempfile::tempdir().unwrap();
+        let real = tmp.path().join("repo");
+        fs::create_dir(&real).unwrap();
+        let link = tmp.path().join("link");
+        symlink(&real, &link).unwrap();
+        let file = link.join("a.log");
+        fs::write(&file, "hello\n").unwrap();
+        git_init(&link).unwrap();
+        // libgit2 reports `repo` (canonical) as the workdir while the caller
+        // passes paths through `link` — status must still be found.
+        let info = git_probe(&link, &file);
+        assert_eq!(info.file_status.as_deref(), Some("未跟踪"));
     }
 
     #[test]

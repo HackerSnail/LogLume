@@ -2,6 +2,12 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-10 — 修复 macOS 符号链接路径下的 Git 状态探测
+
+**Files:** Modify `app/src-tauri/src/gitinfo.rs`（新增 `repo_relative_path()`：把 `repo.workdir()` 与传入文件路径都 `canonicalize()` 后再 `strip_prefix`；`probe_repo` 的文件状态、`last_commit_for` 的树路径查找、`git_stage_and_commit` 的 `index.add_path` 三处统一改用它；新增 `#[cfg(unix)] probe_handles_symlinked_workdir_path` 回归测试：通过符号链接打开仓库仍能识别未跟踪文件）；Modify `CHANGELOG.md`（本条目）。
+**Why:** 运行 `cargo test --workspace` 时 `gitinfo::tests::init_probe_commit_roundtrip` 失败（`file_status` 为 `None`，预期 `未跟踪`）。macOS 的 `TMPDIR=/var/...` 是 `/private/var/...` 符号链接，libgit2 返回规范化后的 workdir，原代码直接 `strip_prefix` 匹配不上，导致文件状态、最近提交、暂存提交都可能定位不到文件。首次执行还遇到 `web_atoms` 构建脚本产物目录为空的本地缓存问题，`cargo clean -p web_atoms` 后恢复正常，与源码无关。
+**验证:** `cargo test --workspace` 全绿（384 passed / 0 failed，含新增回归测试）；`npm run build`（`tsc --noEmit` + vite build）通过；`npx vitest run` 37 文件 / 289 tests 全绿；`cargo clean -p web_atoms` 后不再出现构建脚本产物缺失。
+
 ## 2026-11-10 — 补 README、同步推送 Gitee 与合并解析
 
 **Files:** Add `README.md`（项目定位、能力清单、技术栈、目录结构、环境要求、安装/运行/构建/测试命令、macOS 原生菜单与窗口说明、双仓库推送约定）；Modify `CHANGELOG.md`（本条目）；前序提交 `c50b3a3` 含合并远程语法高亮系列后的解析：删除 `app/frontend/src/main.ts` 中与远程 `contextmenu.ts` 重复的简易中文右键菜单、恢复 `styles.css` 原有 `.app-menu` 样式、同步 `package-lock.json` 新增语言包依赖；`e56015f` 为远程 `main` 的三方合并提交。
