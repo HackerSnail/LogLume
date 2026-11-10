@@ -4,9 +4,22 @@
 给「嫌 VS Code 太重、嫌 Notepad++ 打不开几 GB 日志」的人做的轻量编辑器。日常改文本该有的操作习惯、宏、语法高亮和 Git 面板都在，超大日志、工控编码、DBC/CAN 报文解析也在原生功能里。文件都在本地，不联网也能用。
 </p>
 
-仓库：[GitHub](https://github.com/HackerSnail/LogLume)。应用标识 `com.lumelog.desktop`，窗口标题 `LogLume`。许可证：Apache-2.0（见 [LICENSE](LICENSE)）。
+<p align="center">
+A lightweight editor for people who find VS Code too heavy and Notepad++ unable to open multi-GB logs. Everyday text editing (macros, syntax highlighting, a Git panel) and industrial log work (huge files, legacy encodings, DBC/CAN decoding) are both built in. Files stay local; the app works offline.
+</p>
 
-## 简介
+<p align="center">
+  <a href="#中文">中文</a> ·
+  <a href="#english">English</a>
+</p>
+
+仓库 / Repo：[GitHub](https://github.com/HackerSnail/LogLume) · 应用标识 / App ID：`com.lumelog.desktop` · 窗口标题 / Window title：`LogLume` · 许可证 / License：[Apache-2.0](LICENSE)
+
+---
+
+## 中文
+
+### 简介
 
 VS Code 功能全，但启动和内存开销大，打开 GB 级日志容易把资源占满；Notepad++ 只在 Windows 上跑，大文件、GBK 日志、CAN 报文都得靠插件；Sublime Text 是闭源商业软件，没有原生的 DBC / MF4 解析；Notepad-- 同属轻量替代，大文件性能和工控场景覆盖还有差距。LogLume（中文名「澄章」）既是处理台架、HIL 测试和嵌入式调试日志的工具：分块解码的大文件视图、GBK / GB2312 等老编码、DBC 信号解码与 MF4 测量数据；也是日常文本编辑器：多编码切换、正则查找替换、宏、语法高亮、Git 面板。
 
@@ -14,7 +27,7 @@ VS Code 功能全，但启动和内存开销大，打开 GB 级日志容易把�
 
 功能清单见 [docs/features.md](docs/features.md)，设计文档在 [docs/specs](docs/specs)，测试口径见 [docs/test-checklist.md](docs/test-checklist.md)，项目约定见 [docs/claude.md](docs/claude.md)。
 
-## 功能亮点
+### 功能亮点
 
 * **超大日志**：分块解码 + LRU 缓存 + 后台流式行索引，虚拟列表只取当前窗口；大于 200MB 自动进入只读，不会把整个文件读进内存。CHANGELOG 里记过一次 CLI 基准：971,234,620 字节 / 16,777,217 行合成日志，release 构建含行索引约 590 ms。UI 首屏走流式索引，和这个 CLI 口径不是一回事。
 * **工控编码**：UTF-8 / UTF-16、GBK / GB18030 / Big5 / Shift-JIS、EUC-JP / KR、KOI8-R / U 自动识别与切换，编码和行尾在保存、导出时保持一致。设备与 ECU 导出的老编码日志不用先转码。
@@ -26,7 +39,7 @@ VS Code 功能全，但启动和内存开销大，打开 GB 级日志容易把�
 * **AI 助手（可选）**：默认关闭，要在设置里显式启用并填写自有接口与 Key 才会联网。Key 明文保存在本机 `config.toml`，不随仓库分发。
 * **界面**：浅色 / 暗黑 / Dracula 主题（可跟随系统）、三栏布局、文档信息栏、中文右键菜单。macOS 使用系统原生菜单栏与 Overlay 标题栏，Windows / Linux 使用自绘标题栏。
 
-## 快速开始
+### 快速开始
 
 **安装**：打包目标配在 `app/src-tauri/tauri.conf.json`，覆盖 nsis / msi / dmg / deb / appimage。CHANGELOG 记录过一次 Windows 本地 `tauri build`，产出 NSIS 5.66 MiB、MSI 8.95 MiB；其它平台的发行包以仓库 Releases 页为准。
 
@@ -69,7 +82,7 @@ cargo test --workspace
 
 桌面安装包用 Tauri CLI 的 `tauri build` 从仓库根目录执行。
 
-## 快捷键
+### 快捷键
 
 macOS 上 `Ctrl` 对应 `⌘`（`app/frontend/src/keymap.ts` 里 Ctrl 同时匹配 Cmd）。默认只绑下面 6 个动作，关闭文档、侧栏、文档信息栏、报文面板、导入 DBC、解析报文、识别选区等动作默认未绑定，在「快捷键设置」里重绑；命令面板能搜到全部动作。
 
@@ -82,7 +95,7 @@ macOS 上 `Ctrl` 对应 `⌘`（`app/frontend/src/keymap.ts` 里 Ctrl 同时匹�
 | `Ctrl+G` | 跳转到行… |
 | `Ctrl+Shift+P` | 命令面板 |
 
-## 技术栈
+### 技术栈
 
 | 层 | 技术 |
 | --- | --- |
@@ -91,7 +104,7 @@ macOS 上 `Ctrl` 对应 `⌘`（`app/frontend/src/keymap.ts` 里 Ctrl 同时匹�
 | 前端 | Vite 6 + TypeScript 5 + CodeMirror 6 + TanStack table-core |
 | 测试 | Vitest 2 + `cargo test` |
 
-## 目录结构
+### 目录结构
 
 ```
 Cargo.toml                 # workspace: lumelog-core / lumelog-can / lumelog-app
@@ -105,18 +118,135 @@ docs/                      # 功能清单、规格、计划、评审与测试清
 CHANGELOG.md               # 每次提交的改动与验证记录
 ```
 
-## 配置
+### 配置
 
 用户配置位于应用配置目录的 `config.toml`，包含 `[keymap]` 快捷键覆盖、`recovery_enabled` 崩溃恢复开关，以及可选的 `[ai]` 段（启用状态、接口地址、模型、Key）。不要把含 Key 的配置文件提交到仓库。
 
-## 贡献指南
+### 贡献指南
 
 1. 提交前在根目录 `CHANGELOG.md` 最上方追加条目，按时间倒序排列，写清改了哪些文件、为什么、验证命令与结果。这是 [docs/claude.md](docs/claude.md) 里的项目约定。
 2. 保证 `npx tsc --noEmit`、`npm test`、`cargo test --workspace` 通过；涉及界面交互时补人工冒烟记录。
-3. GitHub 与 Gitee 两个仓库都要推送，避免镜像落后。
 
 Issue 和 PR 都欢迎，功能建议也可以直接提。
 
-## 许可证
+### 许可证
 
 [Apache License 2.0](LICENSE)。
+
+---
+
+## English
+
+### Overview
+
+VS Code does everything, but it starts slow and uses a lot of memory; opening a GB-scale log can push it over the edge. Notepad++ runs only on Windows, and large files, GBK logs and CAN messages all need plugins. Sublime Text is closed source and has no DBC / MF4 decoding. Notepad-- is another lightweight alternative, but large-file performance and industrial coverage still lag. LogLume (Chinese name: 澄章) works on both sides: a tool for bench, HIL and embedded-debugging logs, with chunked decoding, GBK / GB2312 and other legacy encodings, DBC signal decoding and MF4 measurement data; and an everyday text editor with encoding switching, regex find & replace, macros, syntax highlighting and a Git panel.
+
+**Who it's for**: engineers in embedded systems, commercial-vehicle powertrain control and HIL automation who open multi-GB continuous logs, read device output in GBK / GB2312 and inspect CAN signals decoded from DBC files; and developers who edit code and config files with the same encoding, regex, macro, highlighting and Git tools. If you want a plugin ecosystem or full IDE features, VS Code is a better fit.
+
+The full feature list is in [docs/features.md](docs/features.md), design notes in [docs/specs](docs/specs), the test checklist in [docs/test-checklist.md](docs/test-checklist.md), and project conventions in [docs/claude.md](docs/claude.md).
+
+### Highlights
+
+* **Huge logs**: chunked decoding, an LRU cache and a background streaming line index feed a virtualized list that renders only the current window. Files above 200 MB switch to read-only instead of being loaded into memory. One CLI benchmark recorded in CHANGELOG: 971,234,620 bytes / 16,777,217 lines of synthetic log, about 590 ms in a release build including index construction. The UI uses streaming indexing for first paint, so the two numbers measure different paths.
+* **Industrial encodings**: auto-detect and switch between UTF-8 / UTF-16, GBK / GB18030 / Big5 / Shift-JIS, EUC-JP / KR and KOI8-R / U. Encoding and line endings survive save and export, so logs from devices and ECUs need no pre-conversion.
+* **CAN and measurement data**: DBC import and signal decoding; candump / ASC / regex / CAN FD / BLF message sources; MF4 (MDF4) tables and waveform views; message filtering and CSV / JSONL export.
+* **Search and export**: line filtering and highlighting, time-range filtering, directory-level Find in Files, replace preview, filtered-snippet export, and CSV / TSV delimited table views.
+* **Editing**: CodeMirror 6 highlighting for dozens of languages, regex find & replace, line operations and formatters, bookmarks, macro recording with custom shortcuts, and a command palette (`Ctrl+Shift+P`).
+* **Git and extensions**: Git status / commit / branch / remote / conflict panels, QuickJS per-line scripts, and WASM parser plugins.
+* **Viewers and recovery**: xlsx / docx / pdf viewing, crash recovery, external-change monitoring, session restore, `.log` file association and single-instance launch.
+* **Optional AI assistant**: off by default. It reaches the network only after you enable it in settings and supply your own endpoint and key. The key is stored in plain text in the local `config.toml` and is never shipped with the repo.
+* **Interface**: light / dark / Dracula themes (system-following optional), three-column layout, document inspector and Chinese context menus. macOS uses the native menu bar and an overlay title bar; Windows / Linux draw their own title bar.
+
+### Quick Start
+
+**Install**: bundle targets are configured in `app/src-tauri/tauri.conf.json` (nsis / msi / dmg / deb / appimage). CHANGELOG records one local Windows `tauri build` producing a 5.66 MiB NSIS package and an 8.95 MiB MSI. For other platforms, check the repo's Releases page.
+
+| Platform | Package | Install |
+| --- | --- | --- |
+| Windows 10+ | NSIS `.exe` / `.msi` | Run the installer |
+| macOS | `.dmg` | Drag to Applications |
+| Linux | `.deb` / `.AppImage` | `sudo apt install ./xxx.deb`; make the AppImage executable and run it |
+
+Windows 10 or later is required by Tauri v2 and the WebView2 runtime. Linux needs WebKit2GTK and the other Tauri v2 prerequisites; macOS needs the Xcode Command Line Tools.
+
+Open a log with `Ctrl+O`, filter and highlight lines with `Ctrl+Shift+F`, jump to a line with `Ctrl+G`, and search commands with `Ctrl+Shift+P`. Import a DBC file to see decoded signals in the message panel; MF4 files get their own table and waveform views.
+
+**Run from source**: Rust 1.89+ and Node.js 20+ (developed on Node 24 / npm 11).
+
+```bash
+git clone https://github.com/HackerSnail/LogLume.git
+cd LogLume
+cd app/frontend && npm ci && cd ../..
+
+# frontend and src-tauri are siblings: run tauri from the repo root;
+# calling tauri dev inside app/frontend won't find tauri.conf.json
+ROOT="$PWD"
+./app/frontend/node_modules/.bin/tauri dev \
+  --config "{\"build\":{\"beforeDevCommand\":\"npm --prefix $ROOT/app/frontend run dev\"}}"
+```
+
+The dev server runs at `http://localhost:1520`; the first Rust build takes a few minutes. To look at the UI without Tauri IPC, run `npm run dev` in `app/frontend` and open it in a browser — file pickers, Git and other native features will report themselves unavailable.
+
+**Build and test**:
+
+```bash
+cd app/frontend
+npm run build      # tsc --noEmit && vite build
+npm test           # vitest run
+
+cd ../..
+cargo test --workspace
+```
+
+Desktop packages are built with `tauri build` from the repo root.
+
+### Keyboard Shortcuts
+
+On macOS `Ctrl` means `⌘` (`app/frontend/src/keymap.ts` matches Ctrl to Cmd). Only the six actions below are bound by default. Closing documents, toggling the sidebar, inspector and message panel, importing DBC, parsing messages and decoding a selection are unbound; rebind them in Shortcut Settings. The command palette lists every action.
+
+| Keys | Action |
+| --- | --- |
+| `Ctrl+O` | Open file… |
+| `Ctrl+S` | Save |
+| `Ctrl+Shift+S` | Save As… |
+| `Ctrl+Shift+F` | Filter / highlight lines… |
+| `Ctrl+G` | Go to line… |
+| `Ctrl+Shift+P` | Command palette |
+
+### Tech Stack
+
+| Layer | Choice |
+| --- | --- |
+| Document / parsing core | Rust (workspace, edition 2021, MSRV 1.89) |
+| Desktop shell | Tauri v2 (`tauri-plugin-dialog` / `single-instance`) |
+| Frontend | Vite 6 + TypeScript 5 + CodeMirror 6 + TanStack table-core |
+| Tests | Vitest 2 + `cargo test` |
+
+### Project Layout
+
+```
+Cargo.toml                 # workspace: lumelog-core / lumelog-can / lumelog-app
+crates/lumelog-core/       # pure Rust document engine: chunked decoding, line index, filtering, export
+crates/lumelog-can/        # DBC / CAN parsing and golden comparison data
+app/src-tauri/             # Tauri IPC commands, Git / MF4 / scripts / plugins, macOS native menu
+  tauri.conf.json          # main window and bundle config
+  tauri.macos.conf.json    # macOS override: native decorations + overlay title bar
+app/frontend/              # Vite + TypeScript UI (src/main.ts is the entry point)
+docs/                      # feature list, specs, plans, reviews and test checklist
+CHANGELOG.md               # change and verification record for each commit
+```
+
+### Configuration
+
+User settings live in `config.toml` under the app config directory: `[keymap]` shortcut overrides, the `recovery_enabled` crash-recovery switch, and an optional `[ai]` section (enabled flag, endpoint, model, key). Do not commit a config file containing a key.
+
+### Contributing
+
+1. Before committing, add an entry at the top of the root `CHANGELOG.md`, newest first, listing the files changed, why, and the verification commands and results. This is the project convention in [docs/claude.md](docs/claude.md).
+2. Make sure `npx tsc --noEmit`, `npm test` and `cargo test --workspace` pass; add a manual smoke-test note for UI changes.
+
+Issues, PRs and feature suggestions are welcome.
+
+### License
+
+[Apache License 2.0](LICENSE).

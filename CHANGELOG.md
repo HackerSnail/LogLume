@@ -2,6 +2,12 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-10 — README 改成中英双语，去掉双推说明
+
+**Files:** Modify `README.md`（按 https://gitee.com/hackerSnail/note-lume 的 README 结构改为双语：顶部加英文定位段与「中文 / English」导航，仓库信息行改成中英对照；正文拆成 `## 中文` 与 `## English` 两大节，内部各 9 个 `###` 章节；中文内容不变，只把原 `##` 章节降为 `###`；新增对应的英文 Overview / Highlights / Quick Start / Keyboard Shortcuts / Tech Stack / Project Layout / Configuration / Contributing / License，数字、命令、文件名、许可证和中文名与中文版一致；中英两处贡献指南各删掉「GitHub 与 Gitee 两个仓库都要推送」和「Push to both GitHub and Gitee so the mirrors stay in sync.」）；Modify `CHANGELOG.md`（本条目）。
+**Why:** 用户要求 README 写成和 NoteLume 类似的中英双语；另外确认 Gitee 自动同步 GitHub 已覆盖手动双推，贡献指南不用再要求贡献者推两个仓库。此前「重写 README」条目里写的「不放 English 段落」是当时的状态，这条补上英文版。
+**验证:** 纯文档改动，未跑测试。`Select-String` 核对中文 9 个 `###` 章节、English 9 个 `###` 章节；图片 / `<img` / badge / 图片后缀 0 处；中英贡献指南各剩 2 条，「两个仓库」「both GitHub and Gitee」「镜像」0 处；`git diff --stat -- README.md` 为 +141 / -11。
+
 ## 2026-11-10 — README 补上 Apache-2.0 许可证说明
 
 **Files:** Modify `README.md`（顶部仓库行的「仓库尚未声明许可证，商用或分发前请留意」改为「许可证：Apache-2.0（见 [LICENSE](LICENSE)）」；「许可证」章节改为 [Apache License 2.0](LICENSE)）；Modify `CHANGELOG.md`（本条目）。
