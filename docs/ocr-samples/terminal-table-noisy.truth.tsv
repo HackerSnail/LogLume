@@ -1,0 +1,7 @@
+NAME	READY	STATUS	RESTARTS	AGE
+lume-core-7d9f	1/1	Running	0	12d
+lume-web-4b2a	1/1	Running	0	12d
+lume-ocr-worker	0/1	Error	7	3m14s
+lume-postgres	1/1	Running	0	31d
+lume-redis	1/1	Running	0	31d
+lume-grafana	1/1	Running	1	45d

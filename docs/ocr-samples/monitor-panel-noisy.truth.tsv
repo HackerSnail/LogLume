@@ -1,0 +1,7 @@
+时间	主机	指标	数值	状态
+10:31:02	rig-01	motor.speed	1180 rpm	正常
+10:31:02	rig-01	motor.torque	336 Nm	正常
+10:31:05	rig-02	battery.voltage	12.42 V	正常
+10:31:05	rig-02	coolant.temp	92.1 C	预警
+10:31:09	rig-03	line.throughput	820 /min	正常
+10:31:09	rig-03	scrap.rate	1.8 %	预警

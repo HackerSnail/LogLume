@@ -58,7 +58,7 @@ impl WordBox {
 pub struct GridOptions {
     /// Minimum width in pixels of an x-axis gap before it may separate columns.
     pub min_gap_px: i32,
-    /// A gap must be at least this multiple of the median word width. Keeps the
+    /// A gap must be at least this multiple of the character width. Keeps the
     /// even word spacing of a log line from being read as column separators.
     pub gap_factor: f32,
     /// Minimum number of rows a gap must appear in to count as a separator.
@@ -329,22 +329,27 @@ fn find_separators(rows: &[Vec<usize>], words: &[WordBox], opts: &GridOptions) -
         std::cmp::max(2, (rows.len() as f32 * 0.3).ceil() as usize)
     };
 
-    // Column gaps are wide compared to the text itself. The median word width
-    // is the yardstick: a table column is separated by more space than one
-    // character, while the word spacing inside a log line is not.
-    let mut widths: Vec<i32> = words
+    // Column gaps are wide compared to the text itself. The yardstick is the
+    // character width, not the word width: a Chinese label is a few characters
+    // wide, so measuring against whole words would demand gaps no real GUI
+    // table has.
+    let mut char_widths: Vec<i32> = words
         .iter()
         .enumerate()
         .filter(|(i, w)| trusted[*i] && !w.text.trim().is_empty())
-        .map(|(_, w)| w.w.max(0))
+        .map(|(_, w)| {
+            let chars = w.text.trim().chars().count().max(1) as i32;
+            w.w.max(0) / chars
+        })
+        .filter(|c| *c > 0)
         .collect();
-    widths.sort_unstable();
-    let median_width = if widths.is_empty() {
+    char_widths.sort_unstable();
+    let char_width = if char_widths.is_empty() {
         0
     } else {
-        widths[widths.len() / 2]
+        char_widths[char_widths.len() / 2]
     };
-    let width_floor = ((median_width as f32) * opts.gap_factor).ceil() as i32;
+    let width_floor = ((char_width as f32) * opts.gap_factor).ceil() as i32;
 
     let mut cuts: Vec<i32> = Vec::new();
     for pair in merged.windows(2) {
