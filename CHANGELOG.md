@@ -2,6 +2,13 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-11 — 列还原加扰动防护，spec 按 §8/§9 重排
+
+**Files:** Modify `crates/lumelog-core/src/ocr.rs`（新增 `perturbation` 测试模块 5 例：位置抖动 ±3px、框合并跨列、框拆分、丢框 1/4、噪声框；新增两处防护——**可信词聚类** `trusted_words()`：按 x 对齐聚类，出现在 ≥2 行的簇才算列位置，只有可信词参与列缝分析，孤立噪声框不再把一条列缝切成两半导致列边界丢失；**相接框拼接**：格内两框间隙 ≤2px 时直接拼接不插空格（`TOUCHING_GAP_PX`），检测器把一个词切成两半时 "1200" 不会变成 "12 00"）；新增 `find_column`/`all_present` 测试辅助，改用"按内容找列"的断言——脏框可以增删列，但真实列的值必须仍能取出）；Modify `docs/specs/2026-11-10-image-ocr-column-design.md`（按 §8/§9 重排：§8 OCR 运行时依赖与分发策略（8.1 组件包与分发：两模型 + 一运行时、det→rec 两段、砍 cls/砍 en/砍 server det 的逐条理由、组件包四要求——首装即离线可用不做运行时下载、版本与主程序强绑定并加载前校验模型结构与字典、发布附签名与 checksum、三种分发渠道且内网镜像为一等公民、交付前五条验证清单；8.2 升级路径按失败模式决定换 rec 还是 det）、§9 验收样本与 Phase 0.5（9.1 仿真样本版面来源列 PCAN-View/CANoe/CANalyzer/Kvaser、SCADA/HMI 的报警表趋势图设备状态页、Grafana/Zabbix 面板、docker ps/kubectl get pods/MySQL/PostgreSQL 结果表；9.2 v5 升级触发判据分识别质量（数值 exact-match/WERR/CER）与检测质量（列归属准确率、单元格漏检率）两类，门槛数值待真实样本标注后标定；9.3 列还原与扰动要求；9.4 门槛加 WERR、数值 exact-match、单元格漏检率）；§0 决策表同步；§7 性能表 P8 更新为实测 1.72ms；§10 风险补"噪声框切细列"）；Modify `docs/features.md`（待做条目同步）；Modify `CHANGELOG.md`（本条目）。
+**Why:** 用户要求 Phase 0.5 的列还原测试必须在理想框上注入位置抖动、框合并/拆分、丢框、噪声框等扰动，让 CI 提前覆盖真实检测框的脏数据分布，避免理想框掩盖真实 OCR 噪声。实现这组扰动时暴露出两个真实缺陷：噪声框落进列缝会把 80px 的列缝切成 37px+29px 两段、每段都够不上宽度阈值，列边界直接丢失（"Name" 与 "Value" 挤进同一列）；检测器把一个词切成两个相接框时，格内空格拼接会把 "1200" 变成 "12 00"。两者都改为代码层面的防护并写进 spec。
+**验证:** `cargo test -p lumelog-core --lib ocr::` 11 passed / 0 failed（6 基础 + 5 扰动）；`cargo bench -p lumelog-core --bench ocr_grid` → `ocr_grid_from_words_400x8 time: [1.6915 ms 1.7222 ms 1.7570 ms]`（可信词聚类后从 1.04ms 升到 1.72ms，仍在 P8 的 5ms 门槛内）；`cargo clippy --workspace --all-targets -- -D warnings` 无警告；`cargo test --workspace` 全绿。
+**未验证:** 仿真样本 corpus 尚未生成（Phase 0.5 剩余部分），组件包未产出，PP-ONNX 后端未实现，识别率与耗时待真实样本实测。
+
 ## 2026-11-11 — OCR 运行时依赖集收敛到最小集（det+rec+ort）
 
 **Files:** Modify `docs/specs/2026-11-10-image-ocr-column-design.md`（新增 §3.3「运行时依赖集（已定，最小集）」：组件包只含 `ch_PP-OCRv4_det_infer.onnx`（mobile 检测）、`ch_PP-OCRv4_rec_infer.onnx`（ch 识别，中英数一体）与 `bin/onnxruntime.*`；逐条写明砍掉 cls（输入恒 upright，cls 只带来体积、额外分类推理延迟撞 P7/P8，以及短数字串在小图块上被判 180° 把好认的值认翻的静默错误风险，管线定成 det → rec 两段）、砍掉 en 单独一套（PP-OCR 的 ch 模型本身中英数一体，不是纯中文模型，en 只在纯英文且要极致压体积时才值得）、砍掉 server det（手机版在台架/CAN 截图上够用）、v5 只作验收不达标时的升级杠杆（届时只换 rec 一个文件、det 不动）；相对"v4/v5 各一套中英 + cls + server det"的贪婪配置收敛到两个模型 + 一个运行时；§0 决策表补「运行时依赖集」与「样本」两行；§3.2 组件包目录换成确切文件名；§9 样本节改为「验收 corpus = 按公开台架/CAN 界面造的仿真样本」+ 合成样本只做 CI 回归，门槛表改为对仿真 corpus 生效，并要求仿真样本同时产出逐格真值与逐词像素框（词框可让列还原这一段在没有 OCR 引擎时被 CI 先验证）；§11 待办只剩仿真样本版面来源、组件包分发渠道、v5 升级触发条件）；Modify `docs/features.md`（待做条目同步）；Modify `CHANGELOG.md`（本条目）。

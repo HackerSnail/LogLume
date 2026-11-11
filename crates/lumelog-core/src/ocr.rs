@@ -176,6 +176,11 @@ impl Grid {
     }
 }
 
+/// A gap smaller than this (pixels) means two boxes touch — the detector split
+/// one word in two. Such parts are concatenated without a space, otherwise
+/// "1200" would come back as "12 00".
+const TOUCHING_GAP_PX: i32 = 2;
+
 /// Group words into rows by vertical overlap.
 fn group_rows(words: &[WordBox]) -> Vec<Vec<usize>> {
     let mut order: Vec<usize> = (0..words.len()).collect();
@@ -213,15 +218,90 @@ fn group_rows(words: &[WordBox]) -> Vec<Vec<usize>> {
     rows
 }
 
+/// Words that are backed by another row at roughly the same x.
+///
+/// Words are clustered by x overlap; a cluster that shows up in at least two
+/// rows is a column position and its words are trusted. A stray detection (a
+/// border line, a speck) lands in a cluster of its own and stays untrusted,
+/// which keeps it from breaking the column gaps.
+fn trusted_words(rows: &[Vec<usize>], words: &[WordBox]) -> Vec<bool> {
+    // Row index per word, for counting distinct rows per cluster.
+    let mut row_of = vec![usize::MAX; words.len()];
+    for (r, row) in rows.iter().enumerate() {
+        for &i in row {
+            row_of[i] = r;
+        }
+    }
+
+    let mut order: Vec<usize> = (0..words.len()).collect();
+    order.sort_by_key(|&i| (words[i].x, words[i].y));
+
+    // Cluster: merged x-range, the first row it was seen in, and whether a
+    // second row was seen (that is what makes it a column position).
+    let mut clusters: Vec<(i32, i32, usize, bool)> = Vec::new();
+    let mut assign = vec![usize::MAX; words.len()];
+    for &i in &order {
+        let (a, b) = words[i].x_range();
+        if b <= a {
+            continue;
+        }
+        let mut placed = false;
+        for (ci, c) in clusters.iter_mut().enumerate() {
+            let overlap = (b.min(c.1) - a.max(c.0)).max(0);
+            let min_width = (b - a).min(c.1 - c.0);
+            if min_width > 0 && overlap * 2 >= min_width {
+                c.0 = c.0.min(a);
+                c.1 = c.1.max(b);
+                if row_of[i] != usize::MAX && row_of[i] != c.2 {
+                    c.3 = true;
+                }
+                assign[i] = ci;
+                placed = true;
+                break;
+            }
+        }
+        if !placed {
+            clusters.push((a, b, row_of[i], false));
+            assign[i] = clusters.len() - 1;
+        }
+    }
+
+    let mut trusted = vec![false; words.len()];
+    for (i, slot) in trusted.iter_mut().enumerate() {
+        if let Some(c) = assign.get(i).copied().filter(|c| *c != usize::MAX) {
+            *slot = clusters[c].3;
+        }
+    }
+    trusted
+}
+
 /// Find x-axis gaps that no word crosses and that repeat across rows.
 fn find_separators(rows: &[Vec<usize>], words: &[WordBox], opts: &GridOptions) -> Vec<i32> {
-    // Merge all word x-intervals to get the covered stretches.
+    // Only "trusted" words take part in the gap analysis: a word counts as
+    // trusted when some other row has a word at roughly the same x. A junk
+    // detection (a table border read as a character) would otherwise split a
+    // real column gap into two pieces, each below the width threshold, and the
+    // column boundary would be lost.
+    let trusted = trusted_words(rows, words);
+
+    // Merge the trusted word x-intervals to get the covered stretches.
     let mut spans: Vec<(i32, i32)> = words
         .iter()
-        .filter(|w| !w.text.trim().is_empty())
-        .map(|w| w.x_range())
+        .enumerate()
+        .filter(|(i, w)| trusted[*i] && !w.text.trim().is_empty())
+        .map(|(_, w)| w.x_range())
         .filter(|(a, b)| b > a)
         .collect();
+    if spans.is_empty() {
+        // Nothing repeats across rows (single line, or all noise): fall back
+        // to every word.
+        spans = words
+            .iter()
+            .filter(|w| !w.text.trim().is_empty())
+            .map(|w| w.x_range())
+            .filter(|(a, b)| b > a)
+            .collect();
+    }
     if spans.is_empty() {
         return Vec::new();
     }
@@ -254,8 +334,9 @@ fn find_separators(rows: &[Vec<usize>], words: &[WordBox], opts: &GridOptions) -
     // character, while the word spacing inside a log line is not.
     let mut widths: Vec<i32> = words
         .iter()
-        .filter(|w| !w.text.trim().is_empty())
-        .map(|w| w.w.max(0))
+        .enumerate()
+        .filter(|(i, w)| trusted[*i] && !w.text.trim().is_empty())
+        .map(|(_, w)| w.w.max(0))
         .collect();
     widths.sort_unstable();
     let median_width = if widths.is_empty() {
@@ -322,6 +403,9 @@ pub fn grid_from_words(words: &[WordBox], opts: &GridOptions) -> Grid {
     let mut rows: Vec<Vec<Cell>> = Vec::with_capacity(rows_idx.len());
     for row in &rows_idx {
         let mut cells: Vec<Cell> = vec![Cell::default(); columns.len()];
+        // Right edge of the last box placed in each cell — used to tell a
+        // split word (boxes touch) from two separate words (a real space).
+        let mut cell_end: Vec<i32> = vec![i32::MIN; columns.len()];
         let mut idx: Vec<usize> = row.clone();
         idx.sort_by_key(|&i| words[i].x);
         for &i in &idx {
@@ -333,10 +417,14 @@ pub fn grid_from_words(words: &[WordBox], opts: &GridOptions) -> Grid {
                 .unwrap_or(columns.len() - 1);
             let cell = &mut cells[col];
             if !cell.text.is_empty() {
-                cell.text.push(' ');
+                let gap = w.x - cell_end[col];
+                if gap > TOUCHING_GAP_PX {
+                    cell.text.push(' ');
+                }
             }
             cell.text.push_str(w.text.trim());
             cell.words.push(i);
+            cell_end[col] = w.x + w.w.max(0);
         }
         rows.push(cells);
     }
@@ -467,5 +555,181 @@ mod tests {
         // Out of range → empty, no panic.
         assert_eq!(g.column_text(9), "");
         assert!(g.column_values(9).is_empty());
+    }
+}
+
+/// Phase 0.5: the reconstruction must survive the dirty box distribution a
+/// real detector produces. The tests below perturb ideal boxes the way an
+/// OCR detector does — jitter, merge, split, drop, noise — so CI covers the
+/// messy cases before any OCR engine is wired in.
+#[cfg(test)]
+mod perturbation {
+    use super::*;
+
+    fn w(text: &str, x: i32, y: i32, width: i32) -> WordBox {
+        WordBox {
+            text: text.to_string(),
+            x,
+            y,
+            w: width,
+            h: 20,
+            conf: Some(0.9),
+        }
+    }
+
+    /// 4 rows × 3 columns with wide gaps.
+    fn ideal() -> Vec<WordBox> {
+        let rows = [
+            ["ID", "Name", "Value"],
+            ["0x01", "MotorSpeed", "1200"],
+            ["0x02", "MotorTorque", "340"],
+            ["0x03", "Battery", "48"],
+        ];
+        let mut v = Vec::new();
+        for (r, cells) in rows.iter().enumerate() {
+            let y = (r as i32) * 24;
+            for (c, text) in cells.iter().enumerate() {
+                v.push(w(text, 10 + (c as i32) * 160, y, (text.chars().count() as i32) * 8));
+            }
+        }
+        v
+    }
+
+    /// Deterministic LCG — no rand dependency.
+    struct Lcg(u64);
+    impl Lcg {
+        fn next(&mut self) -> u64 {
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040898963407);
+            self.0 >> 11
+        }
+        fn range(&mut self, lo: i32, hi: i32) -> i32 {
+            lo + (self.next() % (hi - lo + 1) as u64) as i32
+        }
+    }
+
+
+
+    /// Index of the column that holds exactly these values, in order.
+    fn find_column(g: &Grid, expected: &[&str]) -> Option<usize> {
+        (0..g.column_count()).find(|&i| g.column_values(i) == expected)
+    }
+
+    /// Every expected string shows up somewhere in the grid.
+    fn all_present(g: &Grid, expected: &[&str]) -> bool {
+        expected.iter().all(|want| {
+            g.rows
+                .iter()
+                .any(|row| row.iter().any(|c| c.text == *want))
+        })
+    }
+
+    #[test]
+    fn survives_position_jitter() {
+        let mut rng = Lcg(7);
+        let jittered: Vec<WordBox> = ideal()
+            .into_iter()
+            .map(|mut b| {
+                b.x += rng.range(-3, 3);
+                b.y += rng.range(-2, 2);
+                b
+            })
+            .collect();
+        let g = grid(&jittered);
+        assert_eq!(g.column_count(), 3);
+        assert_eq!(g.column_values(0), vec!["ID", "0x01", "0x02", "0x03"]);
+        assert_eq!(g.column_values(1), vec!["Name", "MotorSpeed", "MotorTorque", "Battery"]);
+        assert_eq!(g.column_values(2), vec!["Value", "1200", "340", "48"]);
+    }
+
+    #[test]
+    fn survives_dropped_boxes() {
+        let ideal = ideal();
+        // Every fourth word missed by the detector (one cell per row, spread
+        // over the columns).
+        let dropped: Vec<WordBox> = ideal
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| i % 4 != 3)
+            .map(|(_, b)| b.clone())
+            .collect();
+        let g = grid(&dropped);
+        assert_eq!(g.column_count(), 3);
+        // The surviving cells keep their text; the missed ones are empty.
+        assert_eq!(g.column_values(0), vec!["ID", "", "0x02", "0x03"]);
+        assert_eq!(g.column_values(1), vec!["Name", "MotorSpeed", "", "Battery"]);
+        assert_eq!(g.column_values(2), vec!["Value", "1200", "340", ""]);
+    }
+
+    #[test]
+    fn survives_split_boxes() {
+        // "1200" comes back as two touching boxes: the cell text must not gain
+        // a space in the middle.
+        let mut v = ideal();
+        let target = v.iter().position(|b| b.text == "1200").unwrap();
+        let orig = v.remove(target);
+        v.push(w("12", orig.x, orig.y, 16));
+        v.push(w("00", orig.x + 16, orig.y, 16));
+        let g = grid(&v);
+        assert_eq!(g.column_values(2), vec!["Value", "1200", "340", "48"]);
+    }
+
+    #[test]
+    fn survives_merged_boxes() {
+        // Two cells of different columns merged into one wide box: the box
+        // crosses the column gap, so that boundary is gone — but the other
+        // columns must stay intact and the merged text must not vanish.
+        let mut v = ideal();
+        let a = v.iter().position(|b| b.text == "0x01").unwrap();
+        let b = v.iter().position(|b| b.text == "MotorSpeed").unwrap();
+        let (ba, bb) = (v[a].clone(), v[b].clone());
+        v.retain(|w| w.text != "0x01" && w.text != "MotorSpeed");
+        v.push(w(
+            &format!("{} {}", ba.text, bb.text),
+            ba.x,
+            ba.y,
+            bb.x + bb.w - ba.x,
+        ));
+        let g = grid(&v);
+        // The merged box ate one boundary, the other one survives.
+        assert!(g.column_count() >= 2);
+        // The untouched column is still exact.
+        let value_col = find_column(&g, &["Value", "1200", "340", "48"]);
+        assert!(value_col.is_some(), "value column lost");
+        // The merged text is recoverable from one of the columns.
+        let merged = format!("{} {}", ba.text, bb.text);
+        assert!(g
+            .rows
+            .iter()
+            .any(|row| row.iter().any(|c| c.text == merged)));
+    }
+
+    #[test]
+    fn survives_noise_boxes() {
+        let mut rng = Lcg(31);
+        let mut v = ideal();
+        // Junk detections scattered over the image. A junk box inside a column
+        // splits that column into two narrower ones (the values are not lost,
+        // the column boundary is) — so the guarantee is that every value stays
+        // in the grid, not that the column count stays the same.
+        for _ in 0..5 {
+            v.push(w("|", rng.range(0, 500), rng.range(-80, -20), 6));
+        }
+        let g = grid(&v);
+        assert!(g.column_count() >= 2);
+        assert!(
+            all_present(&g, &["ID", "0x01", "0x02", "0x03"]),
+            "id values lost"
+        );
+        assert!(
+            all_present(&g, &["Value", "1200", "340", "48"]),
+            "value column lost"
+        );
+        assert!(all_present(
+            &g,
+            &["Name", "MotorSpeed", "MotorTorque", "Battery"]
+        ));
     }
 }
