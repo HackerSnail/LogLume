@@ -11,9 +11,10 @@
 //! No direction classifier (the input is always upright) and no separate
 //! English model (the `ch` model covers Chinese, English and digits).
 
+use crate::ocr::columns::{column_strips, crop_strip, ColumnOptions};
 use crate::ocr::component;
 use crate::ocr::{DecodedImage, LanguageChoice, OcrError, Progress};
-use lumelog_core::ocr::WordBox;
+use lumelog_core::ocr::{ColumnSpan, WordBox};
 use std::path::Path;
 use std::sync::OnceLock;
 
@@ -43,11 +44,18 @@ pub struct TextBox {
 }
 
 /// Run the PP-OCR pipeline over an image.
+///
+/// Returns the words and — in table mode — the column spans the caller should
+/// use instead of the gap based column detection.
+/// Words, the column spans when the engine found the table structure, and the
+/// language tag.
+pub type OcrWords = (Vec<WordBox>, Option<Vec<ColumnSpan>>, String);
+
 pub fn recognize(
     image: &DecodedImage,
     _language: LanguageChoice,
     progress: Progress<'_>,
-) -> Result<(Vec<WordBox>, String), OcrError> {
+) -> Result<OcrWords, OcrError> {
     progress("查找 OCR 组件包", 10);
     let comp = component::locate(component::COMPONENT_VERSION).map_err(|e| {
         OcrError::new("component_missing", format!("{}", e))
@@ -71,13 +79,43 @@ pub fn recognize(
         .ok_or_else(|| OcrError::new("component_invalid", "组件包缺少字符字典"))?;
     let chars = read_dict(&dict)?;
 
-    progress("检测文本区域", 35);
+    // Table mode: the columns are found in the pixels (exact) and every
+    // column is recognized on its own, so a word can never be split across
+    // two columns. Without table structure the whole image is one strip.
+    progress("检测表格列", 30);
+    let strips = column_strips(image, &ColumnOptions::default());
+
+    if strips.len() >= 2 {
+        // Each column is a narrow image: the recognizer gets a proper text
+        // line per cell, and the whole line text stays intact.
+        let mut words: Vec<WordBox> = Vec::new();
+        let mut bounds: Vec<ColumnSpan> = Vec::new();
+        for strip in &strips {
+            progress("检测文本区域", 35);
+            let piece = crop_strip(image, strip);
+            let boxes = detect(env, &det, &piece)?;
+            progress("识别文字", 60);
+            for (text, y, h) in recognize_lines(env, &rec, &chars, &piece, &boxes)? {
+                words.push(WordBox {
+                    text,
+                    x: strip.x0,
+                    y,
+                    w: strip.width(),
+                    h,
+                    conf: None,
+                });
+            }
+            bounds.push(ColumnSpan {
+                x0: strip.x0,
+                x1: strip.x1,
+            });
+        }
+        return Ok((words, Some(bounds), "onnx".to_string()));
+    }
+
     let boxes = detect(env, &det, image)?;
-
-    progress("识别文字", 60);
     let words = recognize_boxes(env, &rec, &chars, image, &boxes)?;
-
-    Ok((words, "onnx".to_string()))
+    Ok((words, None, "onnx".to_string()))
 }
 
 /// The ONNX Runtime environment, created once per process.
@@ -233,6 +271,81 @@ fn boxes_from_prob(
     }
     boxes.sort_by_key(|b| (b.y, b.x));
     boxes
+}
+
+/// Recognition stage for table mode: one text line per detected box.
+///
+/// The whole line text is returned as-is (no character level positioning) —
+/// the column is already known from the pixels, so the recognizer only has to
+/// read the text.
+fn recognize_lines(
+    env: &ort::environment::Environment,
+    model: &std::path::Path,
+    chars: &[char],
+    image: &DecodedImage,
+    boxes: &[TextBox],
+) -> Result<Vec<(String, i32, i32)>, OcrError> {
+    let mut builder = ort::session::Session::builder(env)
+        .map_err(|e| OcrError::new("component_invalid", format!("创建推理会话失败：{}", e)))?;
+    let mut session = builder
+        .commit_from_file(model)
+        .map_err(|e| OcrError::new("component_invalid", format!("加载识别模型失败：{}", e)))?;
+    let mut lines = Vec::new();
+    for b in boxes {
+        // A cell wider than the recognizer's aspect ratio is read in chunks,
+        // otherwise the text would be squeezed and characters would be lost.
+        let max_w = ((b.h as f32) * REC_MAX_ASPECT).round() as i32;
+        if max_w < 16 {
+            continue;
+        }
+        let step = (max_w - CHUNK_OVERLAP_PX).max(16);
+        let mut chunk_x = b.x;
+        let mut text_all = String::new();
+        let mut chunk_index = 0usize;
+        // Characters covered by the previous chunk's overlap would be read
+        // twice; drop them from every chunk but the first.
+        let overlap_chars = (CHUNK_OVERLAP_PX as f32 / (b.h as f32 * 0.55)).round() as usize;
+        while chunk_x < b.x + b.w {
+            let chunk_w = max_w.min(b.x + b.w - chunk_x);
+            if chunk_w <= 0 {
+                break;
+            }
+            let chunk = TextBox {
+                x: chunk_x,
+                y: b.y,
+                w: chunk_w,
+                h: b.h,
+                score: b.score,
+            };
+            let (crop, rw) = crop_resize(image, &chunk);
+            let tensor = ort::value::Tensor::from_array((vec![1usize, 3, REC_HEIGHT, rw], crop))
+                .map_err(|e| OcrError::engine(format!("构造识别输入失败：{}", e)))?;
+            let outputs = session
+                .run(ort::inputs!["x" => tensor])
+                .map_err(|e| OcrError::engine(format!("识别推理失败：{}", e)))?;
+            let (shape, data) = outputs[0]
+                .try_extract_tensor::<f32>()
+                .map_err(|e| OcrError::engine(format!("读取识别输出失败：{}", e)))?;
+            let steps = shape[shape.len() - 2] as usize;
+            let classes = shape[shape.len() - 1] as usize;
+            let (text, _conf, _peaks) = ctc_decode_with_peaks(data, steps, classes, chars);
+            let trimmed = text.trim();
+            let text: String = if chunk_index == 0 {
+                trimmed.to_string()
+            } else {
+                trimmed.chars().skip(overlap_chars).collect::<String>()
+            };
+            text_all.push_str(&text);
+            chunk_index += 1;
+            chunk_x += step;
+        }
+        let text = text_all.trim().to_string();
+        if text.is_empty() {
+            continue;
+        }
+        lines.push((text, b.y, b.h));
+    }
+    Ok(lines)
 }
 
 /// Recognition stage: crop each box, run the model, decode the CTC output.

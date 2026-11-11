@@ -2,6 +2,13 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-11 — 图片转文字 Phase 1.5：像素级列分割，PP-ONNX 路径列数与文字对齐
+
+**Files:** Add `app/src-tauri/src/ocr/columns.rs`（像素级列分割：Otsu 二值化 → 剔除表格横线（细而宽的墨带，深色表头带不动）→ 墨迹段投影 → **列对齐判据**（真列缝右侧第一个墨块的起点在多行上相同＝列的左边界；值内的间隙逐行错开）→ 按列切条；含 5 个单测，其中 `alignment_beats_width` 用「值内间隙逐行移动」的合成表锁住判据）；Modify `crates/lumelog-core/src/ocr.rs`（`GridOptions` 增加 `column_bounds`：调用方已知列时直接用，不再走间隙启发式——否则刚切好的列会被二次切开）；Modify `app/src-tauri/src/ocr/onnx.rs`（表格模式：按列切条后逐条识别，整行文本原样入格（文字不再有多余空格）；识别行按模型最大宽高比切块并对重叠区按字符数裁剪）；Modify `app/src-tauri/src/ocr/mod.rs`（引擎可回传显式列边界，构造 `GridOptions` 时带上）；Modify `docs/specs/2026-11-10-image-ocr-column-design.md`（新增 §10.2.1 记录像素级列分割的三轮判据迭代与各自被真图证伪的原因、最终判据、实测结果与残余问题）；Modify `docs/features.md`（待做条目同步）；Modify `CHANGELOG.md`（本条目）。
+**Why:** Phase 1.5 的目标是让 PP-ONNX（保证路径）在表格截图上拿到与系统引擎一样的列结构。核心认知：**列结构不能从 CTC 峰值反推**——量化误差 ±4px 已接近字母间距本身；必须从像素里找。而"哪条缝是列缝"也不能靠宽度或计数判定（窄字形留白、逐行错开的值、标题行污染都实测证伪了前两种），最终靠**列对齐**：列的左边界在多行上严格对齐。
+**验证:** 真机（`LUMELOG_OCR_COMPONENT` 指向安装目录 + `engine=onnx`）：PP-ONNX 路径从「8 列、拉丁词内全是空格」变为 **5 列 × 10 行**（与真表一致），文字 `MotorSpeed`/`MotorTorque`/`BatteryVoltage`/`CoolantTemp`/`AmbientTemp`/`EngineRpm` 与中文表头「名称/数据/周期（ms）」全部正确，且无多余空格。离线安装验收：组件装到可执行文件旁的 `ocr/0.1.0/` 后**不设任何环境变量**即可被发现并加载。`cargo test --workspace` 425 passed / 0 failed（新增 5 个列分割单测）；`cargo clippy --workspace --all-targets -- -D warnings` 无警告；`npx vitest run` 314 passed；`npx tsc --noEmit` exit 0。
+**未验证:** 数据列尾部 `00 00 00 00` 仍被切块裁掉、个别词多/少一个字母（`BrakePresslure`、`GearPositioon`）——属识别质量，表格场景仍以系统引擎为首选；断网干净机离线安装验收只验证了「装到约定目录即可用」，未在真无外网机器上复跑。
+
 ## 2026-11-11 — 产出真实 OCR 组件，PP-ONNX 端到端跑通
 
 **Files:** Modify `app/src-tauri/src/ocr/onnx.rs`（ONNX Runtime 环境改为**进程内单例**——ORT 每进程只允许一个 Environment，原先每次识别新建环境导致第二次调用直接失败；长文本行按**模型最大宽高比（320/48 ≈ 6.7:1）切块**再识别，块间重叠 24px 并按覆盖区去重；字符定位由「CTC blank 分组」改为「**CTC 峰值位置**」——该中文模型字符之间也有 3–4 个 blank，blank 不是词边界，而峰值位置才对应字符墨迹位置；新增 `char_width()` 按全角/半角估字宽，并取「估计字宽」与「到下一峰值的距离」的较小值，让相邻字母贴紧、真实词距仍留空；新增 `ctc_decode_with_peaks()` 与 2 个单测）；Modify `docs/specs/2026-11-10-image-ocr-column-design.md`（新增 §10.2「PP-ONNX 实测结论」：组件构成、三个只有真模型才看得见的实现约束、Phase 1.5 像素级表格分割的根治方向）；Modify `docs/features.md`（待做条目同步）；Modify `CHANGELOG.md`（本条目）。

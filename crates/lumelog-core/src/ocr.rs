@@ -54,7 +54,7 @@ impl WordBox {
 }
 
 /// Tuning knobs for the row/column reconstruction.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct GridOptions {
     /// Minimum width in pixels of an x-axis gap before it may separate columns.
     pub min_gap_px: i32,
@@ -64,6 +64,10 @@ pub struct GridOptions {
     /// Minimum number of rows a gap must appear in to count as a separator.
     /// `0` means "auto": at least 2 rows and 30% of all rows.
     pub min_rows_for_split: usize,
+    /// Explicit column spans. When set, the gap based detection is skipped:
+    /// the caller knows the columns (pixel level table segmentation) and the
+    /// gap heuristic would only cut them apart again.
+    pub column_bounds: Option<Vec<ColumnSpan>>,
 }
 
 impl Default for GridOptions {
@@ -72,6 +76,7 @@ impl Default for GridOptions {
             min_gap_px: 6,
             gap_factor: 1.5,
             min_rows_for_split: 0,
+            column_bounds: None,
         }
     }
 }
@@ -408,22 +413,27 @@ pub fn grid_from_words(words: &[WordBox], opts: &GridOptions) -> Grid {
         return Grid::default();
     }
     let trusted = trusted_words(&rows_idx, words);
-    let cuts = find_separators(&rows_idx, words, opts, &trusted);
-
-    // Column spans from the cut points.
-    let mut columns: Vec<ColumnSpan> = Vec::new();
-    let mut start = i32::MIN;
-    for cut in &cuts {
-        columns.push(ColumnSpan {
-            x0: if start == i32::MIN { i32::MIN } else { start },
-            x1: *cut,
-        });
-        start = *cut;
-    }
-    columns.push(ColumnSpan {
-        x0: if start == i32::MIN { i32::MIN } else { start },
-        x1: i32::MAX,
-    });
+    let columns: Vec<ColumnSpan> = match &opts.column_bounds {
+        // The caller knows the columns — use them as they are.
+        Some(bounds) if !bounds.is_empty() => bounds.clone(),
+        _ => {
+            let cuts = find_separators(&rows_idx, words, opts, &trusted);
+            let mut columns: Vec<ColumnSpan> = Vec::new();
+            let mut start = i32::MIN;
+            for cut in &cuts {
+                columns.push(ColumnSpan {
+                    x0: if start == i32::MIN { i32::MIN } else { start },
+                    x1: *cut,
+                });
+                start = *cut;
+            }
+            columns.push(ColumnSpan {
+                x0: if start == i32::MIN { i32::MIN } else { start },
+                x1: i32::MAX,
+            });
+            columns
+        }
+    };
 
     let mut rows: Vec<Vec<Cell>> = Vec::with_capacity(rows_idx.len());
     for row in &rows_idx {

@@ -9,10 +9,11 @@
 //! one or the PP-ONNX models from the offline component package.
 
 use image::ImageDecoder;
-use lumelog_core::ocr::{grid_from_words, Grid, GridOptions, WordBox};
+use lumelog_core::ocr::{grid_from_words, ColumnSpan, Grid, GridOptions, WordBox};
 use serde::Serialize;
 use std::path::Path;
 
+pub mod columns;
 pub mod component;
 pub mod onnx;
 
@@ -207,10 +208,18 @@ pub fn recognize(
     let image = decode_image(path)?;
 
     progress("选择识别引擎", 15);
-    let (words, engine, language) = run_engine(&image, opts, progress)?;
+    let (words, bounds, engine, language) = run_engine(&image, opts, progress)?;
 
     progress("还原行列结构", 85);
-    let grid = grid_from_words(&words, &GridOptions::default());
+    // In table mode the columns are known from the pixels — the gap based
+    // detection would only cut them apart again.
+    let grid = grid_from_words(
+        &words,
+        &GridOptions {
+            column_bounds: bounds,
+            ..GridOptions::default()
+        },
+    );
     let table = OcrTable::from_grid(&grid);
     progress("完成", 100);
 
@@ -235,28 +244,31 @@ pub fn recognize(
 }
 
 /// Engine selection per spec §3.2, with the fallback chain.
+/// Words, the column spans (table mode), the engine name and the language.
+pub type EngineResult = (Vec<WordBox>, Option<Vec<ColumnSpan>>, String, String);
+
 fn run_engine(
     image: &DecodedImage,
     opts: &OcrOptions,
     progress: Progress<'_>,
-) -> Result<(Vec<WordBox>, String, String), OcrError> {
+) -> Result<EngineResult, OcrError> {
     match opts.engine {
         EngineChoice::System => {
             let (w, lang) = system_engine(image, opts.language, progress)?;
-            Ok((w, system_engine_name(), lang))
+            Ok((w, None, system_engine_name(), lang))
         }
         EngineChoice::Onnx => {
-            let (w, lang) = onnx::recognize(image, opts.language, progress)?;
-            Ok((w, "onnx".to_string(), lang))
+            let (w, bounds, lang) = onnx::recognize(image, opts.language, progress)?;
+            Ok((w, bounds, "onnx".to_string(), lang))
         }
         EngineChoice::Auto => {
             // System engine first when it speaks the wanted language.
             if let Ok((w, lang)) = system_engine(image, opts.language, progress) {
-                return Ok((w, system_engine_name(), lang));
+                return Ok((w, None, system_engine_name(), lang));
             }
             // Then the component (the guaranteed path).
-            if let Ok((w, lang)) = onnx::recognize(image, opts.language, progress) {
-                return Ok((w, "onnx".to_string(), lang));
+            if let Ok((w, bounds, lang)) = onnx::recognize(image, opts.language, progress) {
+                return Ok((w, bounds, "onnx".to_string(), lang));
             }
             // Then the system engine with whatever language it does have.
             let fallback = OcrOptions {
@@ -264,7 +276,7 @@ fn run_engine(
                 language: LanguageChoice::Auto,
             };
             let (w, lang) = system_engine(image, fallback.language, progress)?;
-            Ok((w, system_engine_name(), lang))
+            Ok((w, None, system_engine_name(), lang))
         }
     }
 }
