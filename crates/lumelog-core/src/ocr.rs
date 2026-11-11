@@ -31,8 +31,9 @@ pub struct WordBox {
     pub w: i32,
     /// Height in pixels.
     pub h: i32,
-    /// Engine confidence, 0..=1. Unused by the reconstruction itself.
-    pub conf: f32,
+    /// Engine confidence in 0..=1. `None` when the engine does not report one
+    /// (Windows.Media.Ocr has no per-word confidence at all).
+    pub conf: Option<f32>,
 }
 
 impl WordBox {
@@ -359,7 +360,7 @@ mod tests {
             y,
             w: width,
             h: 20,
-            conf: 0.9,
+            conf: Some(0.9),
         }
     }
 

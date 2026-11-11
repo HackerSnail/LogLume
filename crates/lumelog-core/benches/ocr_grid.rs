@@ -30,7 +30,7 @@ fn table_words() -> Vec<WordBox> {
                     y,
                     w,
                     h: 18,
-                    conf: 0.95,
+                    conf: Some(0.95),
                 });
             }
         }

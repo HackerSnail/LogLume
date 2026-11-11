@@ -2,6 +2,13 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-11 — OCR spec 补坐标映射/置信度/语言包/样本验收四节，定混合引擎策略
+
+**Files:** Modify `docs/specs/2026-11-10-image-ocr-column-design.md`（§0 记三项已定决策：混合引擎策略且 PP-ONNX 提升为"保证路径"、Phase 1 只做图片文件、选列结果默认落新标签页；新增 §4 坐标映射（EXIF 方向归一化用 `image` 0.25 的 `ImageDecoder::orientation()` + `DynamicImage::apply_orientation`，Windows OCR 超 `MaxImageDimension` 要缩放后还原、`OcrResult.TextAngle` 的去偏斜坐标系要绕图心反向旋转、PP-OCR 四点框取外接矩形、显示层用单一 `ImageMapping` 对象换算且只在原图坐标里取整）；新增 §5 置信度与纠错（Windows `OcrWord` 无逐词置信度、Vision/Tesseract/PP-ONNX 有；`conf` 统一成 `Option<f32>`；阈值标记、列类型校验、易混字符只提示不改、导出可过滤；core 保持纯函数不猜改）；新增 §6 语言包 fallback（自动/中文/英文设置，检测方式按引擎不同，fallback 链 系统引擎 → PP-ONNX → 系统默认语言引擎 + 具体可执行的提示）；新增 §9 真实样本端到端验收（合成样本进 CI、真实脱敏截图 + 真值 TSV，门槛 CER ≤2%/≤5%、单元格正确率 ≥98%、列还原 100%/≥95%、取列一致 ≥99%，工具 `lumelog-ocr-eval`，无 zh-Hans 语言包时强制 PP-ONNX 复测，结果写进 `docs/test-checklist.md`）；§3 写清"保证路径"的含义与模型分发方案 B（独立离线组件，推荐，P6 不破）/ 方案 A（进主包，门槛重定）；§11 留三个待拍板项）；Modify `crates/lumelog-core/src/ocr.rs`（`WordBox.conf` 由 `f32` 改为 `Option<f32>`，如实表达"Windows 引擎不提供置信度"）；Modify `crates/lumelog-core/benches/ocr_grid.rs`（同步改字段类型）；Modify `docs/features.md`（待做条目同步决策与四节待实现内容）；Modify `CHANGELOG.md`（本条目）。
+**Why:** 用户定了混合引擎策略，并要求把 PP-ONNX 从"兜底"提升为"保证路径"（任何装了本版的机器上都能离线跑，不依赖系统语言包与用户手动下载），同时要求进入实现前先把坐标映射、置信度/纠错、语言包 fallback、真实样本验收四项写进 spec。调研中核到两个会影响实现的事实：Windows `OcrWord` 根本没有置信度属性，且它的框坐标落在去偏斜后的坐标系里（`TextAngle`），这两点必须先落到 spec 与类型上。
+**验证:** `cargo test -p lumelog-core --lib ocr::` 6 passed / 0 failed（conf 改类型后用例同步通过）；`cargo clippy --workspace --all-targets -- -D warnings` 无警告；`cargo bench -p lumelog-core --bench ocr_grid` 仍为 1.04ms 量级（`[1.0208 ms 1.0378 ms 1.0569 ms]`）。
+**未验证:** 模型分发方案与运行时选型尚未拍板，引擎后端未实现，识别率与耗时需真实样本实测。
+
 ## 2026-11-10 — 真实黑盒回归（macOS）：143 条用例逐条实测，暴露 5 处问题
 
 **Files:** Add `TEST-REPORT-log-lume-2026-11-10.md`（143 条用例表，分 DOC/SRC/CAN/CORE/APP/FE/SYS/GUI 八组，逐条填真实「测试结果 / 实际结果」；含未通过用例清单、观察项与复现命令；未执行项写明未测原因）；Delete `docs/reviews/2026-11-10-blackbox-test-cases.md`、`docs/reviews/2026-11-10-blackbox-test-report.md`（旧黑盒用例集与报告由本次实测报告取代）；Add `docs/reviews/.notelume-backup/2026-11-10/2026-11-10-real-test-cases-20-11-04.md`（上一轮 macOS 实测用例表备份）；Modify `CHANGELOG.md`（本条目）。
