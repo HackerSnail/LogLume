@@ -14,6 +14,8 @@
 use crate::ocr::component;
 use crate::ocr::{DecodedImage, LanguageChoice, OcrError, Progress};
 use lumelog_core::ocr::WordBox;
+use std::path::Path;
+use std::sync::OnceLock;
 
 /// Detection thresholds (PP-OCR defaults).
 const DET_THRESHOLD: f32 = 0.3;
@@ -21,6 +23,13 @@ const DET_UNCLIP_RATIO: f32 = 1.5;
 /// Recognition input height; the width follows the box aspect ratio.
 const REC_HEIGHT: usize = 48;
 const REC_MAX_WIDTH: usize = 320;
+/// The recognizer's maximum width/height ratio (320 / 48). A wider line would
+/// be squeezed into 320 px and the CTC time steps would no longer resolve
+/// single characters — so long lines are split into chunks of this ratio.
+const REC_MAX_ASPECT: f32 = REC_MAX_WIDTH as f32 / REC_HEIGHT as f32;
+/// Overlap between two chunks, so a word cut at a seam still appears whole in
+/// the next chunk (the duplicated characters are dropped afterwards).
+const CHUNK_OVERLAP_PX: i32 = 24;
 
 /// One detected text box in image pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -46,11 +55,7 @@ pub fn recognize(
 
     progress("加载 ONNX Runtime", 20);
     let runtime = comp.runtime_path();
-    let env = ort::init_from(&runtime)
-        .map_err(|e| OcrError::new("component_invalid", format!("加载 ONNX Runtime 失败：{}", e)))?
-        .with_name("lumelog")
-        .build()
-        .map_err(|e| OcrError::new("component_invalid", format!("初始化推理环境失败：{}", e)))?;
+    let env = environment(&runtime)?;
 
     let det = comp
         .det_model_path()
@@ -67,12 +72,31 @@ pub fn recognize(
     let chars = read_dict(&dict)?;
 
     progress("检测文本区域", 35);
-    let boxes = detect(&env, &det, image)?;
+    let boxes = detect(env, &det, image)?;
 
     progress("识别文字", 60);
-    let words = recognize_boxes(&env, &rec, &chars, image, &boxes)?;
+    let words = recognize_boxes(env, &rec, &chars, image, &boxes)?;
 
     Ok((words, "onnx".to_string()))
+}
+
+/// The ONNX Runtime environment, created once per process.
+///
+/// ONNX Runtime allows a single environment per process, so a second
+/// recognition run must reuse the first one instead of loading again.
+fn environment(runtime: &Path) -> Result<&'static ort::environment::Environment, OcrError> {
+    static ENV: OnceLock<Result<ort::environment::Environment, String>> = OnceLock::new();
+    let env = ENV.get_or_init(|| {
+        ort::init_from(runtime)
+            .map_err(|e| format!("加载 ONNX Runtime 失败：{}", e))?
+            .with_name("lumelog")
+            .build()
+            .map_err(|e| format!("初始化推理环境失败：{}", e))
+    });
+    match env {
+        Ok(env) => Ok(env),
+        Err(msg) => Err(OcrError::new("component_invalid", msg.clone())),
+    }
 }
 
 /// Read the character dictionary (one character per line, blank is implicit).
@@ -225,31 +249,84 @@ fn recognize_boxes(
         .commit_from_file(model)
         .map_err(|e| OcrError::new("component_invalid", format!("加载识别模型失败：{}", e)))?;
 
-    let mut words = Vec::new();
+    let mut words: Vec<WordBox> = Vec::new();
     for b in boxes {
-        let (crop, rw) = crop_resize(image, b);
-        let tensor = ort::value::Tensor::from_array((vec![1usize, 3, REC_HEIGHT, rw], crop))
-            .map_err(|e| OcrError::engine(format!("构造识别输入失败：{}", e)))?;
-        let outputs = session
-            .run(ort::inputs!["x" => tensor])
-            .map_err(|e| OcrError::engine(format!("识别推理失败：{}", e)))?;
-        let (shape, data) = outputs[0]
-            .try_extract_tensor::<f32>()
-            .map_err(|e| OcrError::engine(format!("读取识别输出失败：{}", e)))?;
-        let steps = shape[shape.len() - 2] as usize;
-        let classes = shape[shape.len() - 1] as usize;
-        let (text, conf) = ctc_decode(data, steps, classes, chars);
-        if text.trim().is_empty() {
+        // A table row is one very wide "line" for the detector; the recognizer
+        // can only take 48×320, so the line is cut into chunks of the model's
+        // aspect ratio and every chunk is recognized on its own.
+        let max_w = ((b.h as f32) * REC_MAX_ASPECT).round() as i32;
+        if max_w < 16 {
             continue;
         }
-        words.push(WordBox {
-            text,
-            x: b.x,
-            y: b.y,
-            w: b.w,
-            h: b.h,
-            conf: Some(conf),
-        });
+        let step = (max_w - CHUNK_OVERLAP_PX).max(16);
+        let mut chunk_x = b.x;
+        let mut covered_to = b.x;
+        while chunk_x < b.x + b.w {
+            let chunk_w = max_w.min(b.x + b.w - chunk_x);
+            if chunk_w <= 0 {
+                break;
+            }
+            let chunk = TextBox {
+                x: chunk_x,
+                y: b.y,
+                w: chunk_w,
+                h: b.h,
+                score: b.score,
+            };
+            let (crop, rw) = crop_resize(image, &chunk);
+            let tensor = ort::value::Tensor::from_array((vec![1usize, 3, REC_HEIGHT, rw], crop))
+                .map_err(|e| OcrError::engine(format!("构造识别输入失败：{}", e)))?;
+            let outputs = session
+                .run(ort::inputs!["x" => tensor])
+                .map_err(|e| OcrError::engine(format!("识别推理失败：{}", e)))?;
+            let (shape, data) = outputs[0]
+                .try_extract_tensor::<f32>()
+                .map_err(|e| OcrError::engine(format!("读取识别输出失败：{}", e)))?;
+            let steps = shape[shape.len() - 2] as usize;
+            let classes = shape[shape.len() - 1] as usize;
+            let (text, _conf, peaks) = ctc_decode_with_peaks(data, steps, classes, chars);
+            if text.trim().is_empty() {
+                chunk_x += step;
+                continue;
+            }
+            // The CTC peak of a character is where its ink was; the box is
+            // placed there with an estimated glyph width. Word gaps and
+            // column gaps then show up as real gaps between the boxes, which
+            // is what the column reconstruction needs.
+            let px_per_step = chunk_w as f32 / steps as f32;
+            for (i, peak) in peaks.iter().enumerate() {
+                let cx = (peak.step as f32 + 0.5) * px_per_step;
+                // A glyph is never wider than the room to the next one: taking
+                // the smaller of the estimate and the actual peak distance
+                // keeps adjacent letters touching while a real word gap stays
+                // a gap.
+                let estimate = char_width(peak.ch, b.h).max(1);
+                let w = match peaks.get(i + 1) {
+                    Some(next) => {
+                        let distance =
+                            ((next.step - peak.step) as f32 * px_per_step).round() as i32;
+                        estimate.min(distance.max(1))
+                    }
+                    None => estimate,
+                };
+                let x0 = chunk_x as f32 + cx - w as f32 / 2.0;
+                let x1 = x0 + w as f32;
+                // Drop what the previous chunk already covered (the overlap).
+                if x1.round() as i32 <= covered_to {
+                    continue;
+                }
+                words.push(WordBox {
+                    text: peak.ch.to_string(),
+                    x: x0.round() as i32,
+                    y: b.y,
+                    w,
+                    h: b.h,
+                    conf: Some(peak.conf),
+                });
+            }
+            covered_to = chunk_x + chunk_w;
+            chunk_x += step;
+        }
     }
     Ok(words)
 }
@@ -280,6 +357,86 @@ fn crop_resize(image: &DecodedImage, b: &TextBox) -> (Vec<f32>, usize) {
         }
     }
     (data, rw)
+}
+
+/// One decoded character and the CTC time step it peaked at.
+///
+/// PP-OCR's recognizer emits characters with blank steps in between, so the
+/// blanks are not word separators — but the *position* of the peak inside the
+/// recognition crop is meaningful: it is where the character's ink was. That
+/// is what lets a text line become word boxes (and therefore columns).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CharPeak {
+    pub ch: char,
+    /// Time step where the character peaked.
+    pub step: usize,
+    /// Confidence at that step.
+    pub conf: f32,
+}
+
+/// Greedy CTC decode that also reports where each character peaked.
+pub fn ctc_decode_with_peaks(
+    logits: &[f32],
+    steps: usize,
+    classes: usize,
+    chars: &[char],
+) -> (String, f32, Vec<CharPeak>) {
+    let blank = 0usize;
+    let mut text = String::new();
+    let mut peaks: Vec<CharPeak> = Vec::new();
+    let mut conf_sum = 0f32;
+    let mut conf_count = 0usize;
+    let mut prev = usize::MAX;
+    let mut peak_conf = 0f32;
+
+    for s in 0..steps {
+        let row = &logits[s * classes..(s + 1) * classes];
+        let mut best = 0usize;
+        let mut best_v = f32::NEG_INFINITY;
+        for (i, v) in row.iter().enumerate() {
+            if *v > best_v {
+                best_v = *v;
+                best = i;
+            }
+        }
+        if best != prev {
+            if best != blank {
+                if let Some(c) = chars.get(best - 1) {
+                    peaks.push(CharPeak {
+                        ch: *c,
+                        step: s,
+                        conf: best_v,
+                    });
+                    text.push(*c);
+                    conf_sum += best_v;
+                    conf_count += 1;
+                }
+            }
+            prev = best;
+            peak_conf = best_v;
+        } else if best != blank && best_v > peak_conf {
+            peak_conf = best_v;
+        }
+    }
+    let conf = if conf_count > 0 {
+        (conf_sum / conf_count as f32).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    (text, conf, peaks)
+}
+
+/// Estimated ink width of a character, in pixels, given the line height.
+///
+/// CJK glyphs are square (as wide as the line is tall); latin glyphs are about
+/// half that. The estimate is what makes a word gap or a column gap visible
+/// between two character boxes.
+fn char_width(ch: char, line_height: i32) -> i32 {
+    let wide = matches!(ch as u32,
+        0x1100..=0x115F | 0x2E80..=0xA4CF | 0xAC00..=0xD7A3 | 0xF900..=0xFAFF
+        | 0xFE30..=0xFE4F | 0xFF00..=0xFF60 | 0xFFE0..=0xFFE6);
+    let factor = if wide { 1.0 } else { 0.55 };
+    ((line_height as f32) * factor).round() as i32
 }
 
 /// Greedy CTC decode: per step take the best class, collapse repeats, drop
@@ -364,6 +521,33 @@ mod tests {
         assert!(b.x <= 2 && b.y <= 2);
         assert!(b.w >= 2 && b.h >= 2);
         assert!(b.score > 0.5);
+    }
+
+    #[test]
+    fn ctc_peaks_report_where_each_character_hit() {
+        // 4 steps: blank, 'a', blank, 'b' — the peaks carry the positions.
+        let chars = vec!['a', 'b'];
+        let logits = vec![
+            0.9, 0.1, 0.0, // blank
+            0.1, 0.8, 0.1, // a
+            0.9, 0.1, 0.0, // blank
+            0.1, 0.1, 0.9, // b
+        ];
+        let (text, conf, peaks) = ctc_decode_with_peaks(&logits, 4, 3, &chars);
+        assert_eq!(text, "ab");
+        assert!(conf > 0.0);
+        assert_eq!(peaks.len(), 2);
+        assert_eq!(peaks[0].ch, 'a');
+        assert_eq!(peaks[0].step, 1);
+        assert_eq!(peaks[1].ch, 'b');
+        assert_eq!(peaks[1].step, 3);
+    }
+
+    #[test]
+    fn glyph_width_follows_the_script() {
+        // CJK glyphs are square, latin ones about half the line height.
+        assert_eq!(char_width('数', 24), 24);
+        assert_eq!(char_width('M', 24), 13);
     }
 
     #[test]
