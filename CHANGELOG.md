@@ -2,6 +2,13 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-11 — OCR spec 定下分发/运行时/样本三项决策
+
+**Files:** Modify `docs/specs/2026-11-10-image-ocr-column-design.md`（§0 决策表补三项：模型分发=方案 B 离线组件包、OCR 运行时=`ort`、样本=双轨且验收只认真实样本，并写明三者同一逻辑——体积靠拆分而非重定门槛、可靠性靠成熟实现与真实数据；§3.2 改为"方案 B（已定）"：组件包含 `manifest.json` + ONNX Runtime 原生库 + PP-OCR det/rec 模型，用 `ort` 的 `load-dynamic` + `ort::init_from` 动态加载原生库，主包不装原生库所以 P6 ≤15MB 不重定，组件缺失主程序照常启动，且**不做运行时下载**；新增交付前验证清单五条，首条是断网干净机装组件包即用；§3.3 决策表把 PP-ONNX 分支改成"组件包已安装"，提示指向本地组件目录而非网络下载链接；§6 语言包 fallback 的检测与提示同步改成组件包语义；§7 性能表加 P10 主包体积门槛（加组件后仍 ≤15MB）；§9 样本改双轨——合成样本只做 CI 回归（清晰合成图 CER 无区分度），门槛表只对真实样本生效，真实样本要求 ≥20 张、三类界面、清晰/噪声两组、中英混排，并加"断网干净机跑一遍真实样本"的离线验收；§11 路线调整为组件包先行，剩余待拍板只剩模型组合、分发渠道、真实样本来源）；Modify `docs/features.md`（待做条目同步）；Modify `CHANGELOG.md`（本条目）。
+**Why:** 用户拍板：模型分发选 B（离线组件包，非运行时下载）、运行时选 `ort`、样本是分工不是二选一（双轨，验收只认真实样本）。三者背后同一逻辑——体积交给"拆分"解决而不是重定门槛或牺牲可靠性，可靠性交给成熟实现与真实数据兜底而不是省体积的自研运行时加按想象造的样本。用户点出唯一要盯住的连锁假设：B 必须是离线可装的组件包，否则 `ort` 的体积加上工控现场无外网会把整条链路的可用性一起拖死。
+**验证:** 纯文档改动，未改代码路径；核实 `ort` crate 2.0.0-rc.15 提供 `ort::init_from` 且带 `load-dynamic` 特性（许可 MIT OR Apache-2.0），确认 ONNX Runtime 原生库可以动态加载、因而能留在组件包内不进主包；`cargo test --workspace` 399 passed / 0 failed（未受本改动影响）。
+**未验证:** 组件包未产出，PP-ONNX 后端未实现；识别率与耗时仍待真实样本实测。
+
 ## 2026-11-11 — OCR spec 补坐标映射/置信度/语言包/样本验收四节，定混合引擎策略
 
 **Files:** Modify `docs/specs/2026-11-10-image-ocr-column-design.md`（§0 记三项已定决策：混合引擎策略且 PP-ONNX 提升为"保证路径"、Phase 1 只做图片文件、选列结果默认落新标签页；新增 §4 坐标映射（EXIF 方向归一化用 `image` 0.25 的 `ImageDecoder::orientation()` + `DynamicImage::apply_orientation`，Windows OCR 超 `MaxImageDimension` 要缩放后还原、`OcrResult.TextAngle` 的去偏斜坐标系要绕图心反向旋转、PP-OCR 四点框取外接矩形、显示层用单一 `ImageMapping` 对象换算且只在原图坐标里取整）；新增 §5 置信度与纠错（Windows `OcrWord` 无逐词置信度、Vision/Tesseract/PP-ONNX 有；`conf` 统一成 `Option<f32>`；阈值标记、列类型校验、易混字符只提示不改、导出可过滤；core 保持纯函数不猜改）；新增 §6 语言包 fallback（自动/中文/英文设置，检测方式按引擎不同，fallback 链 系统引擎 → PP-ONNX → 系统默认语言引擎 + 具体可执行的提示）；新增 §9 真实样本端到端验收（合成样本进 CI、真实脱敏截图 + 真值 TSV，门槛 CER ≤2%/≤5%、单元格正确率 ≥98%、列还原 100%/≥95%、取列一致 ≥99%，工具 `lumelog-ocr-eval`，无 zh-Hans 语言包时强制 PP-ONNX 复测，结果写进 `docs/test-checklist.md`）；§3 写清"保证路径"的含义与模型分发方案 B（独立离线组件，推荐，P6 不破）/ 方案 A（进主包，门槛重定）；§11 留三个待拍板项）；Modify `crates/lumelog-core/src/ocr.rs`（`WordBox.conf` 由 `f32` 改为 `Option<f32>`，如实表达"Windows 引擎不提供置信度"）；Modify `crates/lumelog-core/benches/ocr_grid.rs`（同步改字段类型）；Modify `docs/features.md`（待做条目同步决策与四节待实现内容）；Modify `CHANGELOG.md`（本条目）。
