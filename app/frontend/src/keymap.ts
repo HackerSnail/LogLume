@@ -15,7 +15,8 @@ export type ActionId =
   | "can-panel"
   | "can-import"
   | "can-parse"
-  | "can-snippet";
+  | "can-snippet"
+  | "ocr-image";
 
 /** Stable action order (also the modal's row order). */
 export const ACTION_IDS: ActionId[] = [
@@ -32,6 +33,7 @@ export const ACTION_IDS: ActionId[] = [
   "can-import",
   "can-parse",
   "can-snippet",
+  "ocr-image",
 ];
 
 /** Built-in bindings; actions absent here start unbound. */

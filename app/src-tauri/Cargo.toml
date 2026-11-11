@@ -35,12 +35,32 @@ git2 = "0.20"
 tauri-plugin-single-instance = "2"
 # AI assist: OpenAI-compatible HTTP client (streaming chunks parsed by hand).
 reqwest = { version = "0.13", default-features = false, features = ["json", "native-tls"] }
+# OCR (spec §8): image decode + component integrity checks.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+sha2 = "0.10"
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+# ONNX Runtime via the offline component package: `load-dynamic` keeps the
+# native library out of the main binary (P6 stays ≤15MB). `download-binaries`
+# is deliberately off — the runtime ships in the component, never at build time.
+ort = { version = "2.0.0-rc.15", default-features = false, features = ["load-dynamic", "std"] }
 
 # macOS-only: strip the English AutoFill / Dictation / Emoji items AppKit
 # injects into the Edit menu (see menu.rs).
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSMenu", "NSMenuItem"] }
+
+# Windows-only: built-in OCR engine (Windows.Media.Ocr).
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62", features = [
+    "Foundation",
+    "Globalization",
+    "Graphics",
+    "Graphics_Imaging",
+    "Media_Ocr",
+    "Storage_Streams",
+    "Win32_System_WinRT",
+] }
 
 [dev-dependencies]
 rust_xlsxwriter = "0.102.0"

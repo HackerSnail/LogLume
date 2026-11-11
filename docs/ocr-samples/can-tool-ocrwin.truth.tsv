@@ -1,0 +1,10 @@
+PCAN-View	一 报文列表			
+	名称	DLC	数据	周#(ms)
+0x01	MotorSpeed	8	00 1 A 2B 3C 00 00 00 00	
+0x02	MotorTorque	8	00 00 00 64 00 00 00 00	
+0x03	BatteryV01tage	2	OC E4	
+0x04	CoolantTemp	2	00 5A	
+0x11	Brakepressure	4	01 C8 00 00	
+0x12	GearPOSltlOn		03	50
+0x21	AmbientTemp	2	00 1 E	2000
+0x22	EnglneRpm	2	OB B8	

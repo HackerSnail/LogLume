@@ -54,6 +54,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .item(&mi(app, "menu:open-mf4", "打开 MF4 测量数据…", None)?)
         .item(&mi(app, "menu:open-blf", "打开 BLF 报文记录…", None)?)
         .item(&mi(app, "menu:viewer", "打开文档查看器…", None)?)
+        .item(&mi(app, "menu:ocr-image", "图片转文字…（本地 OCR）", None)?)
         .separator()
         .item(&mi(app, "menu:save", "保存", Some("CmdOrCtrl+S"))?)
         .item(&mi(

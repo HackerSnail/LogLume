@@ -176,9 +176,15 @@ impl Grid {
     }
 }
 
-/// A gap smaller than this (pixels) means two boxes touch — the detector split
-/// one word in two. Such parts are concatenated without a space, otherwise
-/// "1200" would come back as "12 00".
+/// Two boxes closer than this (pixels) belong to the same word — the detector
+/// split it in two. They are concatenated without a space, otherwise "1200"
+/// would come back as "12 00".
+///
+/// A fixed pixel gap beats a relative one here: the gap between two real words
+/// and the gap between two halves of a split word are about the same size, so
+/// no threshold separates them. Keeping the corpus exact (real spaces stay
+/// spaces) is worth more than guessing, and the column type check (spec §5.3)
+/// catches the leftovers.
 const TOUCHING_GAP_PX: i32 = 2;
 
 /// Group words into rows by vertical overlap.
@@ -218,6 +224,27 @@ fn group_rows(words: &[WordBox]) -> Vec<Vec<usize>> {
     rows
 }
 
+/// Median character width of the trusted words — the yardstick for both the
+/// column gap threshold and the "same word" join threshold.
+fn median_char_width(words: &[WordBox], trusted: &[bool]) -> i32 {
+    let mut widths: Vec<i32> = words
+        .iter()
+        .enumerate()
+        .filter(|(i, w)| trusted[*i] && !w.text.trim().is_empty())
+        .map(|(_, w)| {
+            let chars = w.text.trim().chars().count().max(1) as i32;
+            w.w.max(0) / chars
+        })
+        .filter(|c| *c > 0)
+        .collect();
+    widths.sort_unstable();
+    if widths.is_empty() {
+        0
+    } else {
+        widths[widths.len() / 2]
+    }
+}
+
 /// Words that are backed by another row at roughly the same x.
 ///
 /// Words are clustered by x overlap; a cluster that shows up in at least two
@@ -248,8 +275,11 @@ fn trusted_words(rows: &[Vec<usize>], words: &[WordBox]) -> Vec<bool> {
         let mut placed = false;
         for (ci, c) in clusters.iter_mut().enumerate() {
             let overlap = (b.min(c.1) - a.max(c.0)).max(0);
-            let min_width = (b - a).min(c.1 - c.0);
-            if min_width > 0 && overlap * 2 >= min_width {
+            // The overlap must cover half of the WIDER word: a long title
+            // ("PCAN-View") overlapping a narrow cell of the column next to it
+            // must not pull both into one column position.
+            let wider = (b - a).max(c.1 - c.0);
+            if wider > 0 && overlap * 2 >= wider {
                 c.0 = c.0.min(a);
                 c.1 = c.1.max(b);
                 if row_of[i] != usize::MAX && row_of[i] != c.2 {
@@ -276,13 +306,17 @@ fn trusted_words(rows: &[Vec<usize>], words: &[WordBox]) -> Vec<bool> {
 }
 
 /// Find x-axis gaps that no word crosses and that repeat across rows.
-fn find_separators(rows: &[Vec<usize>], words: &[WordBox], opts: &GridOptions) -> Vec<i32> {
+fn find_separators(
+    rows: &[Vec<usize>],
+    words: &[WordBox],
+    opts: &GridOptions,
+    trusted: &[bool],
+) -> Vec<i32> {
     // Only "trusted" words take part in the gap analysis: a word counts as
     // trusted when some other row has a word at roughly the same x. A junk
     // detection (a table border read as a character) would otherwise split a
     // real column gap into two pieces, each below the width threshold, and the
     // column boundary would be lost.
-    let trusted = trusted_words(rows, words);
 
     // Merge the trusted word x-intervals to get the covered stretches.
     let mut spans: Vec<(i32, i32)> = words
@@ -333,22 +367,7 @@ fn find_separators(rows: &[Vec<usize>], words: &[WordBox], opts: &GridOptions) -
     // character width, not the word width: a Chinese label is a few characters
     // wide, so measuring against whole words would demand gaps no real GUI
     // table has.
-    let mut char_widths: Vec<i32> = words
-        .iter()
-        .enumerate()
-        .filter(|(i, w)| trusted[*i] && !w.text.trim().is_empty())
-        .map(|(_, w)| {
-            let chars = w.text.trim().chars().count().max(1) as i32;
-            w.w.max(0) / chars
-        })
-        .filter(|c| *c > 0)
-        .collect();
-    char_widths.sort_unstable();
-    let char_width = if char_widths.is_empty() {
-        0
-    } else {
-        char_widths[char_widths.len() / 2]
-    };
+    let char_width = median_char_width(words, trusted);
     let width_floor = ((char_width as f32) * opts.gap_factor).ceil() as i32;
 
     let mut cuts: Vec<i32> = Vec::new();
@@ -388,7 +407,8 @@ pub fn grid_from_words(words: &[WordBox], opts: &GridOptions) -> Grid {
     if rows_idx.is_empty() {
         return Grid::default();
     }
-    let cuts = find_separators(&rows_idx, words, opts);
+    let trusted = trusted_words(&rows_idx, words);
+    let cuts = find_separators(&rows_idx, words, opts, &trusted);
 
     // Column spans from the cut points.
     let mut columns: Vec<ColumnSpan> = Vec::new();

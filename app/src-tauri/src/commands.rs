@@ -58,6 +58,94 @@ pub fn app_ping() -> &'static str {
     "pong"
 }
 
+/// Progress tick of a running OCR job (spec §7: the work happens off the UI
+/// thread and reports what it is doing).
+#[derive(Clone, serde::Serialize)]
+pub struct OcrProgressJson {
+    /// Stage name, e.g. "检测文本区域".
+    pub stage: String,
+    /// Percentage 0..=100.
+    pub pct: u8,
+}
+
+/// Write generated text to a temporary file and return its path.
+///
+/// The OCR result is handed to the front end as a normal document (spec §2:
+/// the table lands in a new tab), so it needs a file on disk.
+#[tauri::command]
+pub fn write_temp_text(name: &str, content: &str) -> Result<String, IpcError> {
+    let safe: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let dir = std::env::temp_dir();
+    let path = dir.join(format!("lumelog-{}-{}.txt", if safe.is_empty() { "out" } else { &safe }, stamp));
+    std::fs::write(&path, content).map_err(|e| {
+        IpcError::new(
+            "write_failed",
+            format!("写入临时文件失败：{}", e),
+        )
+    })?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// Recognize an image and rebuild its table (spec §2, §8).
+///
+/// The work runs on a blocking thread; progress arrives over the channel. The
+/// front end opens the result as a new tab.
+#[tauri::command]
+pub async fn ocr_image(
+    path: String,
+    engine: String,
+    language: String,
+    on_progress: Channel<OcrProgressJson>,
+) -> Result<crate::ocr::OcrOutcome, IpcError> {
+    let p = Path::new(&path);
+    if !p.is_file() {
+        return Err(IpcError::new("ocr_failed", format!("找不到图片：{}", path)));
+    }
+    let engine = match engine.as_str() {
+        "auto" => crate::ocr::EngineChoice::Auto,
+        "system" => crate::ocr::EngineChoice::System,
+        "onnx" => crate::ocr::EngineChoice::Onnx,
+        other => {
+            return Err(IpcError::new(
+                "ocr_failed",
+                format!("未知识别引擎：{}", other),
+            ))
+        }
+    };
+    let language = match language.as_str() {
+        "auto" => crate::ocr::LanguageChoice::Auto,
+        "zh" | "zh-Hans" => crate::ocr::LanguageChoice::ZhHans,
+        "en" | "en-US" => crate::ocr::LanguageChoice::English,
+        other => {
+            return Err(IpcError::new(
+                "ocr_failed",
+                format!("未知识别语言：{}", other),
+            ))
+        }
+    };
+    let opts = crate::ocr::OcrOptions { engine, language };
+    let handle = tauri::async_runtime::spawn_blocking(move || {
+        let mut progress = |stage: &str, pct: u8| {
+            let _ = on_progress.send(OcrProgressJson {
+                stage: stage.to_string(),
+                pct,
+            });
+        };
+        crate::ocr::recognize(Path::new(&path), &opts, &mut progress)
+    });
+    let result = handle
+        .await
+        .map_err(|e| IpcError::new("ocr_failed", format!("识别任务异常：{}", e)))?;
+    result.map_err(|e| IpcError::new(&e.kind, e.message))
+}
+
 /// Open a document: pre-validate (spec §9 codes), then hand the path to the core.
 /// Readonly docs (>200 MiB) index in a background thread (Plan 37): `doc_open`
 /// returns immediately with a line estimate and `total_lines: null`; the thread

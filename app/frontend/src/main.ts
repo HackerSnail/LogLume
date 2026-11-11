@@ -93,6 +93,8 @@ import {
   fifCancel,
   csvRun,
   type FifHit,
+  call,
+  ocrImage,
 } from "./ipc";
 import { ParserPanel, RowStore } from "./parserpanel";
 import { PdfView, clampPage, stepZoom } from "./pdfview";
@@ -2797,6 +2799,38 @@ async function openFile(): Promise<void> {
   if (typeof picked === "string") await openPath(picked);
 }
 
+/**
+ * 图片转文字（本地 OCR，spec §8）：选一张图片 → 识别 → 还原行列 → 落一个新标签页。
+ * 识别在后台线程跑，进度用 toast 报；结果写成临时文本再按普通文档打开。
+ */
+async function openImageOcr(): Promise<void> {
+  const picked = await open({
+    multiple: false,
+    filters: [
+      { name: "图片", extensions: ["png", "jpg", "jpeg", "bmp", "webp", "tif", "tiff"] },
+    ],
+  });
+  if (typeof picked !== "string") return;
+  const toast = document.getElementById("toast");
+  setBusy(true);
+  try {
+    const outcome = await ocrImage(picked, "auto", "auto", (p) => {
+      if (!toast) return;
+      toast.textContent = `图片转文字：${p.stage} ${p.pct}%`;
+      toast.classList.add("visible");
+    });
+    const path = await call<string>("write_temp_text", { name: "ocr", content: outcome.table.text });
+    await openPath(path);
+    const cols = outcome.table.column_count;
+    const rows = outcome.table.rows.length;
+    toastMsg(`识别完成（${outcome.engine} · ${outcome.language}）：${cols} 列 × ${rows} 行`);
+  } catch (err) {
+    reportError(err);
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function openPath(path: string, opts?: { quiet?: boolean }): Promise<boolean> {
   if (busy) return false;
   setBusy(true);
@@ -4970,6 +5004,7 @@ const ACTION_DEFS: ActionDef[] = [
   { id: "can-import", title: "导入 DBC…", run: () => void importDbc() },
   { id: "can-parse", title: "解析当前文档为报文", run: () => void parseActive() },
   { id: "can-snippet", title: "识别选中为报文", run: () => void decodeSelection() },
+  { id: "ocr-image", title: "图片转文字…（本地 OCR）", run: () => void openImageOcr() },
 ];
 
 function actionTitle(id: string): string {

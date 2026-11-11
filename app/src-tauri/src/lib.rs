@@ -13,6 +13,7 @@ mod launch;
 // Native macOS application menu (items forward `menu:` ids to the front end).
 mod menu;
 mod mf4;
+pub mod ocr;
 mod plugins;
 mod recent;
 mod recovery;
@@ -72,6 +73,8 @@ pub fn run() {
         )))
         .invoke_handler(tauri::generate_handler![
             commands::app_ping,
+            commands::ocr_image,
+            commands::write_temp_text,
             commands::reveal_in_folder,
             commands::doc_open,
             commands::doc_chunk,

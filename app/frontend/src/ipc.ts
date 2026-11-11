@@ -329,6 +329,55 @@ export function revealInFolder(path: string): Promise<void> {
   return call<void>("reveal_in_folder", { path });
 }
 
+/** Progress tick of a running OCR job. */
+export interface OcrProgress {
+  stage: string;
+  pct: number;
+}
+
+/** One recognized word, in image pixel coordinates. */
+export interface OcrWord {
+  text: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  conf: number | null;
+}
+
+/** The reconstructed table of an OCR run. */
+export interface OcrTable {
+  rows: string[][];
+  column_count: number;
+  text: string;
+  tsv: string;
+}
+
+/** Result of one OCR run. */
+export interface OcrOutcome {
+  engine: string;
+  language: string;
+  image_width: number;
+  image_height: number;
+  words: OcrWord[];
+  table: OcrTable;
+}
+
+/**
+ * Recognize an image and rebuild its table (spec §8). The work runs on a
+ * blocking thread in the shell; progress arrives over the channel.
+ */
+export function ocrImage(
+  path: string,
+  engine: "auto" | "system" | "onnx",
+  language: "auto" | "zh" | "en",
+  onProgress: (p: OcrProgress) => void,
+): Promise<OcrOutcome> {
+  const ch = new Channel<OcrProgress>();
+  ch.onmessage = onProgress;
+  return call<OcrOutcome>("ocr_image", { path, engine, language, onProgress: ch });
+}
+
 export function docOpen(
   path: string,
   onProgress: (p: IndexProgress) => void,
