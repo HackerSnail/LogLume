@@ -315,6 +315,47 @@ pub fn column_strips(image: &DecodedImage, opts: &ColumnOptions) -> Vec<ColumnSt
     }
 }
 
+/// Paint out the horizontal rules of a table.
+///
+/// The detector reads the rules as text and misses whole cells because of
+/// them, so they are removed before the image goes to the models.
+pub fn strip_rules(image: &DecodedImage, opts: &ColumnOptions) -> DecodedImage {
+    let (w, h) = (image.width as usize, image.height as usize);
+    if w < 8 || h < 8 {
+        return DecodedImage {
+            width: image.width,
+            height: image.height,
+            bgra: image.bgra.clone(),
+        };
+    }
+    let ink = binarize(image);
+    let rules = rule_rows(&ink, w, h, opts);
+    if !rules.iter().any(|r| *r) {
+        return DecodedImage {
+            width: image.width,
+            height: image.height,
+            bgra: image.bgra.clone(),
+        };
+    }
+    let mut bgra = image.bgra.clone();
+    for (y, is_rule) in rules.iter().enumerate() {
+        if !*is_rule {
+            continue;
+        }
+        for x in 0..w {
+            let i = (y * w + x) * 4;
+            bgra[i] = 255;
+            bgra[i + 1] = 255;
+            bgra[i + 2] = 255;
+        }
+    }
+    DecodedImage {
+        width: image.width,
+        height: image.height,
+        bgra,
+    }
+}
+
 /// Crop the image to a column strip (the pixels stay BGRA).
 pub fn crop_strip(image: &DecodedImage, strip: &ColumnStrip) -> DecodedImage {
     let (w, h) = (image.width as usize, image.height as usize);

@@ -2,6 +2,13 @@
 
 按 git log 时间倒序（最新在最上方）。每条写清：改了哪些文件、为什么、验证结果。
 
+## 2026-11-11 — OCR 组件：横线预处理与数据列尾部截断的定位
+
+**Files:** Modify `app/src-tauri/src/ocr/columns.rs`（新增 `strip_rules()`：把表格横线涂白后再送模型——检测器会把横线当文字；新增行带投影的实验实现，最终回退）；Modify `app/src-tauri/src/ocr/onnx.rs`（表格模式识别前先涂白横线；调试输出清理）；Modify `docs/specs/2026-11-10-image-ocr-column-design.md`（§10.2.1 补记数据列尾部截断的根因与两种无效绕法）；Modify `CHANGELOG.md`（本条目）。
+**Why:** 上一轮把 PP-ONNX 路径的列结构修好后，剩一个可见缺陷：数据列的真值 `00 1A 2B 3C 00 00 00 00` 只读出 `001A2B3`。本轮定位到根因不在切块或列切分，而在**文本检测本身**：DB 检测对"空格分隔的等宽短串"只框住前 113px（内容实为 185px），尾部从未进入检测框。
+**验证:** 两种绕法实测均退化并已回退：① 完全用像素行带替代检测框——墨迹紧裁导致拉伸过激，`0x01`→`OXO`、`100`→`1oo`；② 行高取检测框、宽度取墨迹范围——与①等价无收益。回退后 PP-ONNX 路径维持 **5 列 × 10 行**、文字基本全对（与上一提交一致，无退化）；系统引擎同图 5 列。`cargo test --workspace` 430 passed / 0 failed；`cargo clippy --workspace --all-targets -- -D warnings` 无警告；`npx vitest run` 314 passed。
+**未验证:** 数据列尾部截断仍未修好，下一方向是按行滑动窗口或词级检测模型；横线涂白对本图无可观测影响（防御性保留）。
+
 ## 2026-11-11 — 图片转文字 Phase 1.5：像素级列分割，PP-ONNX 路径列数与文字对齐
 
 **Files:** Add `app/src-tauri/src/ocr/columns.rs`（像素级列分割：Otsu 二值化 → 剔除表格横线（细而宽的墨带，深色表头带不动）→ 墨迹段投影 → **列对齐判据**（真列缝右侧第一个墨块的起点在多行上相同＝列的左边界；值内的间隙逐行错开）→ 按列切条；含 5 个单测，其中 `alignment_beats_width` 用「值内间隙逐行移动」的合成表锁住判据）；Modify `crates/lumelog-core/src/ocr.rs`（`GridOptions` 增加 `column_bounds`：调用方已知列时直接用，不再走间隙启发式——否则刚切好的列会被二次切开）；Modify `app/src-tauri/src/ocr/onnx.rs`（表格模式：按列切条后逐条识别，整行文本原样入格（文字不再有多余空格）；识别行按模型最大宽高比切块并对重叠区按字符数裁剪）；Modify `app/src-tauri/src/ocr/mod.rs`（引擎可回传显式列边界，构造 `GridOptions` 时带上）；Modify `docs/specs/2026-11-10-image-ocr-column-design.md`（新增 §10.2.1 记录像素级列分割的三轮判据迭代与各自被真图证伪的原因、最终判据、实测结果与残余问题）；Modify `docs/features.md`（待做条目同步）；Modify `CHANGELOG.md`（本条目）。

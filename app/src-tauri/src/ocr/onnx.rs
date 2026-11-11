@@ -11,7 +11,7 @@
 //! No direction classifier (the input is always upright) and no separate
 //! English model (the `ch` model covers Chinese, English and digits).
 
-use crate::ocr::columns::{column_strips, crop_strip, ColumnOptions};
+use crate::ocr::columns::{column_strips, crop_strip, strip_rules, ColumnOptions};
 use crate::ocr::component;
 use crate::ocr::{DecodedImage, LanguageChoice, OcrError, Progress};
 use lumelog_core::ocr::{ColumnSpan, WordBox};
@@ -83,7 +83,11 @@ pub fn recognize(
     // column is recognized on its own, so a word can never be split across
     // two columns. Without table structure the whole image is one strip.
     progress("检测表格列", 30);
-    let strips = column_strips(image, &ColumnOptions::default());
+    let opts = ColumnOptions::default();
+    // Table rules confuse the detector (it reads them as text and then misses
+    // whole cells), so they are painted out before anything else.
+    let cleaned = strip_rules(image, &opts);
+    let strips = column_strips(&cleaned, &opts);
 
     if strips.len() >= 2 {
         // Each column is a narrow image: the recognizer gets a proper text
@@ -91,8 +95,10 @@ pub fn recognize(
         let mut words: Vec<WordBox> = Vec::new();
         let mut bounds: Vec<ColumnSpan> = Vec::new();
         for strip in &strips {
-            progress("检测文本区域", 35);
-            let piece = crop_strip(image, strip);
+            progress("切分文本行", 35);
+            let piece = crop_strip(&cleaned, strip);
+            // The rows come from the pixels: the text detector cuts long lines
+            // of space separated values short and would lose their tail.
             let boxes = detect(env, &det, &piece)?;
             progress("识别文字", 60);
             for (text, y, h) in recognize_lines(env, &rec, &chars, &piece, &boxes)? {
